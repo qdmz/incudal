@@ -193,7 +193,7 @@ function formatDate(dateStr: string | null | undefined): string {
 </script>
 
 <template>
-  <div class="space-y-6 animate-fade-in">
+  <div class="py-4 space-y-6 animate-fade-in">
     <!-- Header -->
     <div class="page-header">
       <div>

@@ -89,7 +89,7 @@ void configStore.loadPublicConfig()
 
 <template>
   <footer class="relative border-t" :class="themeStore.isDark ? 'border-white/10' : 'border-black/10'">
-    <div class="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+    <div class="mx-auto w-[90%] max-w-7xl py-12">
       <div
         class="rounded-[32px] border p-6 shadow-sm sm:p-8"
         :class="themeStore.isDark ? 'border-white/10 bg-white/[0.03]' : 'border-black/10 bg-white/90'"
@@ -133,26 +133,38 @@ void configStore.loadPublicConfig()
         </div>
       </div>
 
-      <div class="mt-10 grid gap-8 sm:grid-cols-2">
-        <div class="space-y-3">
+      <div class="mt-6 grid gap-4 sm:grid-cols-2">
+        <div
+          class="rounded-2xl border p-5"
+          :class="themeStore.isDark ? 'border-white/10 bg-white/[0.03]' : 'border-black/5 bg-white/60'"
+        >
           <div class="text-xs font-semibold uppercase tracking-[0.2em]" :class="themeStore.isDark ? 'text-zinc-500' : 'text-zinc-500'">
             {{ t('publicSite.footer.explore') }}
           </div>
-          <div class="flex flex-col gap-2 text-sm">
+          <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
             <RouterLink class="transition-colors" :class="themeStore.isDark ? 'text-zinc-300 hover:text-white' : 'text-zinc-700 hover:text-zinc-950'" to="/">
               {{ t('publicSite.nav.home') }}
             </RouterLink>
             <RouterLink class="transition-colors" :class="themeStore.isDark ? 'text-zinc-300 hover:text-white' : 'text-zinc-700 hover:text-zinc-950'" to="/market">
               {{ t('publicSite.nav.products') }}
             </RouterLink>
+            <RouterLink class="transition-colors" :class="themeStore.isDark ? 'text-zinc-300 hover:text-white' : 'text-zinc-700 hover:text-zinc-950'" to="/announcements">
+              公告
+            </RouterLink>
+            <RouterLink class="transition-colors" :class="themeStore.isDark ? 'text-zinc-300 hover:text-white' : 'text-zinc-700 hover:text-zinc-950'" to="/help">
+              {{ t('publicSite.nav.help') }}
+            </RouterLink>
           </div>
         </div>
 
-        <div class="space-y-3">
+        <div
+          class="rounded-2xl border p-5"
+          :class="themeStore.isDark ? 'border-white/10 bg-white/[0.03]' : 'border-black/5 bg-white/60'"
+        >
           <div class="text-xs font-semibold uppercase tracking-[0.2em]" :class="themeStore.isDark ? 'text-zinc-500' : 'text-zinc-500'">
             {{ t('publicSite.footer.account') }}
           </div>
-          <div class="flex flex-col gap-2 text-sm">
+          <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
             <RouterLink
               v-for="link in accountLinks"
               :key="link.to"
@@ -163,9 +175,34 @@ void configStore.loadPublicConfig()
               {{ link.label }}
             </RouterLink>
           </div>
-          <p class="text-xs leading-6" :class="themeStore.isDark ? 'text-zinc-500' : 'text-zinc-500'">
+          <p class="mt-3 text-xs leading-5" :class="themeStore.isDark ? 'text-zinc-500' : 'text-zinc-400'">
             {{ t('publicSite.footer.purchaseHint') }}
           </p>
+        </div>
+      </div>
+
+      <div
+        class="mt-6 flex flex-col items-center gap-3 border-t pt-6 sm:flex-row sm:justify-between"
+        :class="themeStore.isDark ? 'border-white/10' : 'border-black/10'"
+      >
+        <p class="text-xs" :class="themeStore.isDark ? 'text-zinc-500' : 'text-zinc-400'">
+          &copy; {{ new Date().getFullYear() }} {{ brand.brandName }}. All rights reserved.
+        </p>
+        <div class="flex items-center gap-4 text-xs" :class="themeStore.isDark ? 'text-zinc-500' : 'text-zinc-400'">
+          <a
+            v-if="configStore.footerTelegramLink"
+            :href="configStore.footerTelegramLink"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="transition-colors"
+            :class="themeStore.isDark ? 'hover:text-zinc-300' : 'hover:text-zinc-600'"
+          >Telegram</a>
+          <a
+            v-if="configStore.footerContactEmail"
+            :href="'mailto:' + configStore.footerContactEmail"
+            class="transition-colors"
+            :class="themeStore.isDark ? 'hover:text-zinc-300' : 'hover:text-zinc-600'"
+          >{{ configStore.footerContactEmail }}</a>
         </div>
       </div>
     </div>

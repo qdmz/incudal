@@ -93,7 +93,9 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
-    redirect: { name: 'dashboard' }
+    name: 'home',
+    component: () => import('@/views/HomeView.vue'),
+    meta: { guest: true }
   },
   {
     path: '/dashboard',
@@ -103,10 +105,9 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/market',
-    redirect: (to) => ({
-      name: 'instance-create',
-      query: to.query
-    })
+    name: 'market',
+    component: () => import('@/views/MarketView.vue'),
+    meta: { guest: true }
   },
   {
     path: '/instances',
@@ -391,13 +392,19 @@ const routes: RouteRecordRaw[] = [
     path: '/help',
     name: 'help',
     component: () => import('@/views/HelpView.vue'),
-    meta: { requiresAuth: true, titleKey: 'nav.help', title: '帮助' }
+    meta: { guest: true, titleKey: 'nav.help', title: '帮助' }
   },
   {
     path: '/help/:slug',
     name: 'help-article',
     component: () => import('@/views/HelpView.vue'),
-    meta: { requiresAuth: true, titleKey: 'nav.help', title: '帮助' }
+    meta: { guest: true, titleKey: 'nav.help', title: '帮助' }
+  },
+  {
+    path: '/announcements',
+    name: 'announcements',
+    component: () => import('@/views/AnnouncementsView.vue'),
+    meta: { guest: true, title: '公告' }
   },
   // Inbox (notifications)
   {

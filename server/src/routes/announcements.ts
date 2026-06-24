@@ -7,7 +7,44 @@ import * as announcementsDb from '../db/announcements.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 
 export default async function announcementsRoutes(fastify: FastifyInstance) {
-  // 所有路由都需要认证
+  /**
+   * 获取公开公告列表（无需认证）
+   * GET /api/announcements/public
+   */
+  fastify.get<{
+    Querystring: {
+      page?: string
+      pageSize?: string
+    }
+  }>('/public', async (request: FastifyRequest<{
+    Querystring: {
+      page?: string
+      pageSize?: string
+    }
+  }>) => {
+    const { page = '1', pageSize = '20' } = request.query
+
+    const result = await announcementsDb.getAnnouncementList({
+      page: parseInt(page, 10) || 1,
+      pageSize: parseInt(pageSize, 10) || 20,
+      type: 'system_broadcast',
+    })
+
+    return {
+      items: result.items.map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        content: item.content,
+        pinned: false,
+        createdAt: item.createdAt,
+      })),
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
+    }
+  })
+
+  // 以下路由需要认证
   fastify.addHook('onRequest', fastify.authenticate)
 
   /**

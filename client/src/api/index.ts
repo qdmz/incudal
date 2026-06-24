@@ -2671,6 +2671,20 @@ const api = {
 
   // 公告/通知历史
   announcements: {
+    // 获取公开公告列表（无需认证）
+    listPublic: (params?: { page?: number; pageSize?: number }): Promise<{
+      items: Array<{
+        id: number
+        title: string
+        content: string
+        pinned: boolean
+        createdAt: string
+      }>
+      total: number
+      page: number
+      pageSize: number
+    }> => http.get('/announcements/public', { params }),
+
     // 获取公告历史列表（管理员）
     list: (params?: { page?: number; pageSize?: number; type?: string }): Promise<{
       items: Array<{

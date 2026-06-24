@@ -32,13 +32,15 @@ const isAuthPage = computed(() => authRouteNames.has(String(route.name || '')))
     <main class="relative flex flex-1 flex-col">
       <div
         v-if="isAuthPage"
-        class="mx-auto flex w-full max-w-7xl flex-1 items-center justify-center px-4 py-10 sm:px-6 sm:py-14 lg:px-8"
+        class="mx-auto flex w-[90%] max-w-7xl flex-1 items-center justify-center px-0 py-10 sm:py-14"
       >
         <slot />
       </div>
-      <slot v-else />
+      <div v-else class="mx-auto w-[90%] max-w-7xl px-0 py-8 sm:py-12">
+        <slot />
+      </div>
     </main>
 
-    <PublicSiteFooter v-if="!isAuthPage" />
+    <PublicSiteFooter />
   </div>
 </template>

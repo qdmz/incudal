@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useConfigStore } from '@/stores/config'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import PublicSiteLayout from '@/components/public/PublicSiteLayout.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import PopupAnnouncementModal from '@/components/PopupAnnouncementModal.vue'
 
@@ -24,9 +25,14 @@ const hiddenHostingRouteNames = new Set([
 ])
 
 // 不需要布局的页面
-const noLayoutRoutes: string[] = ['login', 'register']
+const publicRouteNames: string[] = ['home', 'market', 'announcements', 'help', 'help-article']
+const noLayoutRoutes: string[] = ['login', 'register', 'forgot-password']
+const isPublicRoute = computed<boolean>(() => publicRouteNames.includes(route.name as string))
 const showLayout = computed<boolean>(() => {
-  return authStore.isAuthenticated && !noLayoutRoutes.includes(route.name as string)
+  return authStore.isAuthenticated && !noLayoutRoutes.includes(route.name as string) && !isPublicRoute.value
+})
+const showPublicLayout = computed<boolean>(() => {
+  return isPublicRoute.value || noLayoutRoutes.includes(route.name as string)
 })
 
 watchEffect(() => {
@@ -170,13 +176,19 @@ onUnmounted(() => {
   <AppLayout v-if="showLayout">
     <RouterView v-slot="{ Component, route: currentRoute }">
       <template v-if="Component">
-        <!-- 使用 exclude 排除不需要缓存的页面，避免 include 匹配问题 -->
         <KeepAlive :exclude="['InstanceCreateView', 'InstanceDetailView', 'PackageFormView', 'MyHostDetailView']" :max="10">
           <component :is="Component" :key="currentRoute.name" />
         </KeepAlive>
       </template>
     </RouterView>
   </AppLayout>
+  <PublicSiteLayout v-else-if="showPublicLayout">
+    <RouterView v-slot="{ Component, route: currentRoute }">
+      <template v-if="Component">
+        <component :is="Component" :key="currentRoute.name" />
+      </template>
+    </RouterView>
+  </PublicSiteLayout>
   <RouterView v-else v-slot="{ Component, route: currentRoute }">
     <template v-if="Component">
       <component :is="Component" :key="currentRoute.name" />

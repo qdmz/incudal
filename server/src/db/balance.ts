@@ -4,7 +4,14 @@
  */
 
 import { prisma } from './prisma.js'
-import { Prisma, type BalanceLog, type BalanceLogType } from '@prisma/client'
+import { Prisma, type BalanceLog, type BalanceLogType, type User } from '@prisma/client'
+import {
+  MAX_USER_BALANCE,
+  createBalanceTransferNo,
+  normalizeBalanceTransferAmount,
+  normalizeBalanceTransferFee,
+  roundMoney
+} from '../lib/balance-transfer.js'
 
 type BalanceQueryClient = typeof prisma | Prisma.TransactionClient
 
@@ -14,17 +21,40 @@ const BALANCE_TRANSACTION_OPTIONS = {
   timeout: 10000,
 } as const
 
+function isRetryableBalanceTransactionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const prismaError = error as Error & { code?: string }
+  return prismaError.code === 'P2034' ||
+    prismaError.message.includes('deadlock') ||
+    prismaError.message.includes('write conflict') ||
+    prismaError.message.includes('could not serialize')
+}
+
+async function runBalanceTransaction<T>(handler: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  const maxRetries = 3
+  let lastError: unknown = null
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await prisma.$transaction(handler, BALANCE_TRANSACTION_OPTIONS)
+    } catch (error) {
+      lastError = error
+      if (!isRetryableBalanceTransactionError(error) || attempt === maxRetries) {
+        throw error
+      }
+
+      const delay = (Math.floor(Math.random() * 120) + 40) * attempt
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError
+}
+
 function toNumber(value: unknown): number {
   if (value === null || value === undefined) return 0
   const numberValue = Number(value)
   return Number.isFinite(numberValue) ? numberValue : 0
-}
-
-/**
- * 四舍五入到分（两位小数），避免浮点精度问题
- */
-function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100
 }
 
 // ==================== 余额查询 ====================
@@ -133,6 +163,194 @@ export interface BalanceChangeResult {
   error?: string
 }
 
+export interface BalanceTransferPreview {
+  transferNo?: string
+  fromUserId: number
+  recipient: Pick<User, 'id' | 'username' | 'email' | 'avatarStyle' | 'avatarBadgeId'>
+  amount: number
+  fee: number
+  totalDeduction: number
+  currentBalance: number
+  balanceAfter: number
+}
+
+export async function buildBalanceTransferPreview(input: {
+  fromUserId: number
+  recipientId: number
+  amount: number
+  fee: number
+}): Promise<BalanceTransferPreview> {
+  const amount = normalizeBalanceTransferAmount(input.amount)
+  const fee = normalizeBalanceTransferFee(input.fee)
+
+  if (input.fromUserId === input.recipientId) {
+    throw new Error('BALANCE_TRANSFER_TO_SELF')
+  }
+
+  const [sender, recipient] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: input.fromUserId },
+      select: { balance: true }
+    }),
+    prisma.user.findUnique({
+      where: { id: input.recipientId },
+      select: { id: true, username: true, email: true, avatarStyle: true, avatarBadgeId: true, status: true, balance: true }
+    })
+  ])
+
+  if (!sender || !recipient) {
+    throw new Error('USER_NOT_FOUND')
+  }
+
+  if (recipient.status === 'banned') {
+    throw new Error('BALANCE_TRANSFER_RECIPIENT_BANNED')
+  }
+
+  if (roundMoney(Number(recipient.balance) + amount) > MAX_USER_BALANCE) {
+    throw new Error('BALANCE_TRANSFER_BALANCE_LIMIT_EXCEEDED')
+  }
+
+  const currentBalance = Number(sender.balance)
+  const totalDeduction = roundMoney(amount + fee)
+  const balanceAfter = roundMoney(currentBalance - totalDeduction)
+  if (balanceAfter < 0) {
+    throw new Error('BALANCE_TRANSFER_INSUFFICIENT_BALANCE')
+  }
+
+  return {
+    fromUserId: input.fromUserId,
+    recipient: {
+      id: recipient.id,
+      username: recipient.username,
+      email: recipient.email,
+      avatarStyle: recipient.avatarStyle,
+      avatarBadgeId: recipient.avatarBadgeId
+    },
+    amount,
+    fee,
+    totalDeduction,
+    currentBalance,
+    balanceAfter
+  }
+}
+
+export async function transferBalanceBetweenUsers(input: {
+  fromUserId: number
+  recipientId: number
+  amount: number
+  fee: number
+}): Promise<BalanceTransferPreview & { transferNo: string }> {
+  const amount = normalizeBalanceTransferAmount(input.amount)
+  const fee = normalizeBalanceTransferFee(input.fee)
+
+  if (input.fromUserId === input.recipientId) {
+    throw new Error('BALANCE_TRANSFER_TO_SELF')
+  }
+
+  return runBalanceTransaction(async (tx) => {
+    const [sender, recipient] = await Promise.all([
+      tx.user.findUnique({
+        where: { id: input.fromUserId },
+        select: { id: true, username: true, balance: true }
+      }),
+      tx.user.findUnique({
+        where: { id: input.recipientId },
+        select: { id: true, username: true, email: true, avatarStyle: true, avatarBadgeId: true, status: true, balance: true }
+      })
+    ])
+
+    if (!sender || !recipient) {
+      throw new Error('USER_NOT_FOUND')
+    }
+
+    if (recipient.status === 'banned') {
+      throw new Error('BALANCE_TRANSFER_RECIPIENT_BANNED')
+    }
+
+    const totalDeduction = roundMoney(amount + fee)
+    const senderBalanceBefore = Number(sender.balance)
+    const senderBalanceAfterTransfer = roundMoney(senderBalanceBefore - amount)
+    const senderBalanceAfterFee = roundMoney(senderBalanceAfterTransfer - fee)
+
+    if (senderBalanceAfterFee < 0) {
+      throw new Error('BALANCE_TRANSFER_INSUFFICIENT_BALANCE')
+    }
+
+    const recipientBalanceBefore = Number(recipient.balance)
+    const recipientBalanceAfter = roundMoney(recipientBalanceBefore + amount)
+    if (recipientBalanceAfter > MAX_USER_BALANCE) {
+      throw new Error('BALANCE_TRANSFER_BALANCE_LIMIT_EXCEEDED')
+    }
+
+    const transferNo = createBalanceTransferNo()
+
+    await tx.user.update({
+      where: { id: sender.id },
+      data: { balance: senderBalanceAfterFee }
+    })
+
+    await tx.user.update({
+      where: { id: recipient.id },
+      data: { balance: recipientBalanceAfter }
+    })
+
+    await tx.balanceLog.create({
+      data: {
+        userId: sender.id,
+        type: 'balance_transfer_out',
+        amount: -amount,
+        balanceBefore: senderBalanceBefore,
+        balanceAfter: senderBalanceAfterTransfer,
+        orderId: transferNo,
+        remark: `转账给 ${recipient.username}`
+      }
+    })
+
+    if (fee > 0) {
+      await tx.balanceLog.create({
+        data: {
+          userId: sender.id,
+          type: 'balance_transfer_fee',
+          amount: -fee,
+          balanceBefore: senderBalanceAfterTransfer,
+          balanceAfter: senderBalanceAfterFee,
+          orderId: transferNo,
+          remark: `余额转账手续费`
+        }
+      })
+    }
+
+    await tx.balanceLog.create({
+      data: {
+        userId: recipient.id,
+        type: 'balance_transfer_in',
+        amount,
+        balanceBefore: recipientBalanceBefore,
+        balanceAfter: recipientBalanceAfter,
+        orderId: transferNo,
+        remark: `收到 ${sender.username} 转账`
+      }
+    })
+
+    return {
+      transferNo,
+      fromUserId: sender.id,
+      recipient: {
+        id: recipient.id,
+        username: recipient.username,
+        email: recipient.email,
+        avatarStyle: recipient.avatarStyle,
+        avatarBadgeId: recipient.avatarBadgeId
+      },
+      amount,
+      fee,
+      totalDeduction,
+      currentBalance: senderBalanceBefore,
+      balanceAfter: senderBalanceAfterFee
+    }
+  })
+}
+
 /**
  * 变更用户余额（事务安全）
  * 所有余额变动都应该通过这个函数进行，确保日志记录和数据一致性
@@ -143,7 +361,7 @@ export async function changeBalance(
   const { userId, type, amount, orderId, instanceId, remark } = input
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await runBalanceTransaction(async (tx) => {
       // 1. 获取当前余额（Serializable 隔离保证读取的值不会被其他事务修改）
       const user = await tx.user.findUnique({
         where: { id: userId },
@@ -183,7 +401,7 @@ export async function changeBalance(
       })
 
       return { balanceLog, newBalance: balanceAfter }
-    }, BALANCE_TRANSACTION_OPTIONS)
+    })
 
     return {
       success: true,

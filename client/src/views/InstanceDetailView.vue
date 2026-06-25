@@ -4,36 +4,39 @@ defineOptions({
   name: 'InstanceDetailView'
 })
 
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
+import { usePollingWhenVisible } from '@/composables/usePollingWhenVisible'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import { useToast } from '@/stores/toast'
 import { useConfigStore } from '@/stores/config'
 import InstanceInfoTab from '@/components/instance/InstanceInfoTab.vue'
-import InstanceNetworkTab from '@/components/instance/InstanceNetworkTab.vue'
-import InstanceQuotaTab from '@/components/instance/InstanceQuotaTab.vue'
-import InstanceConfigTab from '@/components/instance/InstanceConfigTab.vue'
-import InstanceSitesTab from '@/components/instance/InstanceSitesTab.vue'
-import InstanceLogsTab from '@/components/instance/InstanceLogsTab.vue'
-import SnapshotManager from '@/components/SnapshotManager.vue'
-import TrafficStats from '@/components/instance/TrafficStats.vue'
-import AddPortModal from '@/components/instance/modals/AddPortModal.vue'
-import PortConflictModal from '@/components/instance/modals/PortConflictModal.vue'
-import RebuildModal from '@/components/instance/modals/RebuildModal.vue'
-import RecreateModal from '@/components/instance/modals/RecreateModal.vue'
-import TransferModal from '@/components/instance/modals/TransferModal.vue'
-import ConfigEditModal from '@/components/instance/modals/ConfigEditModal.vue'
-import RenewModal from '@/components/instance/modals/RenewModal.vue'
-import ApplyAffCodeModal from '@/components/instance/modals/ApplyAffCodeModal.vue'
-import ChangePlanModal from '@/components/instance/modals/ChangePlanModal.vue'
-import DestroyInstanceModal from '@/components/instance/modals/DestroyInstanceModal.vue'
-import TerminalModal from '@/components/instance/TerminalModal.vue'
+// 非默认 tab 组件使用异步加载，减少实例详情页初始包体积（用户切换 tab 时才加载对应代码）
+const InstanceNetworkTab = defineAsyncComponent(() => import('@/components/instance/InstanceNetworkTab.vue'))
+const InstanceQuotaTab = defineAsyncComponent(() => import('@/components/instance/InstanceQuotaTab.vue'))
+const InstanceConfigTab = defineAsyncComponent(() => import('@/components/instance/InstanceConfigTab.vue'))
+const InstanceSitesTab = defineAsyncComponent(() => import('@/components/instance/InstanceSitesTab.vue'))
+const InstanceLogsTab = defineAsyncComponent(() => import('@/components/instance/InstanceLogsTab.vue'))
+const SnapshotManager = defineAsyncComponent(() => import('@/components/SnapshotManager.vue'))
+const TrafficStats = defineAsyncComponent(() => import('@/components/instance/TrafficStats.vue'))
+// 低频模态框使用异步加载，减少实例详情页初始包体积（含重型 xterm 的 TerminalModal 尤为关键）
+const AddPortModal = defineAsyncComponent(() => import('@/components/instance/modals/AddPortModal.vue'))
+const PortConflictModal = defineAsyncComponent(() => import('@/components/instance/modals/PortConflictModal.vue'))
+const RebuildModal = defineAsyncComponent(() => import('@/components/instance/modals/RebuildModal.vue'))
+const RecreateModal = defineAsyncComponent(() => import('@/components/instance/modals/RecreateModal.vue'))
+const TransferModal = defineAsyncComponent(() => import('@/components/instance/modals/TransferModal.vue'))
+const ConfigEditModal = defineAsyncComponent(() => import('@/components/instance/modals/ConfigEditModal.vue'))
+const RenewModal = defineAsyncComponent(() => import('@/components/instance/modals/RenewModal.vue'))
+const ApplyAffCodeModal = defineAsyncComponent(() => import('@/components/instance/modals/ApplyAffCodeModal.vue'))
+const ChangePlanModal = defineAsyncComponent(() => import('@/components/instance/modals/ChangePlanModal.vue'))
+const DestroyInstanceModal = defineAsyncComponent(() => import('@/components/instance/modals/DestroyInstanceModal.vue'))
+const TerminalModal = defineAsyncComponent(() => import('@/components/instance/TerminalModal.vue'))
 import InstanceDisplayIcon from '@/components/InstanceDisplayIcon.vue'
-import InstanceBadgeModal from '@/components/instance/InstanceBadgeModal.vue'
+const InstanceBadgeModal = defineAsyncComponent(() => import('@/components/instance/InstanceBadgeModal.vue'))
 import AnnouncementIcon from '@/components/icons/AnnouncementIcon.vue'
 import { getStatusInfo } from '@/utils/formatters'
 import { translateError } from '@/utils/errorHandler'
@@ -109,7 +112,7 @@ const stats = ref<ResourceStats>({
 })
 const statsLoading = ref<boolean>(false)
 
-// 流量数据
+// 流量数据（完整字段，与 TrafficStats 组件共享）
 interface TrafficData {
   monthlyUsed: string
   monthlyUsedFormatted: string
@@ -117,6 +120,13 @@ interface TrafficData {
   monthlyLimitFormatted: string | null
   trafficStatus: 'NORMAL' | 'WARNING' | 'LIMITED'
   percentage: number
+  trafficResetDay: number
+  periodStart: string
+  periodEnd: string
+  resetAllowed: boolean
+  resetPrice: number
+  resetPriceFormatted: string | null
+  resetDisabledReason: string | null
 }
 const trafficData = ref<TrafficData | null>(null)
 const trafficLoading = ref<boolean>(false)
@@ -237,6 +247,8 @@ const remainingQuota = ref<RemainingQuota>({ // 剩余额度
 const showConfigEditModal = ref<boolean>(false)
 const configEditLoading = ref<boolean>(false)
 const instancePackage = ref<Package | null>(null)
+// 记录上次获取套餐信息的 package_id，避免轮询时重复获取不变的套餐数据
+let lastFetchedPackageId: number | null = null
 
 // 兑换资源
 const showRedeemModal = ref<boolean>(false)
@@ -331,8 +343,7 @@ function endDrag() {
     window.removeEventListener('touchend', endDrag)
 }
 
-let refreshInterval: ReturnType<typeof setInterval> | null = null
-let statsInterval: ReturnType<typeof setInterval> | null = null
+const polling = usePollingWhenVisible()
 let isComponentMounted = ref<boolean>(true)  // 组件挂载状态标志
 
 onMounted(async (): Promise<void> => {
@@ -342,7 +353,9 @@ onMounted(async (): Promise<void> => {
   // 注意：loadInstance() 内部已经处理了 loadStats() 和 loadTrafficData() 的调用
   // 不需要在这里重复调用
   if (isComponentMounted.value) {
-    refreshInterval = setInterval(loadInstance, 5000)
+    // 分层轮询：实例配置 15s，资源监控 5s（产品需求），流量数据 15s
+    polling.start('instance', loadInstance, 15000)
+    polling.start('traffic', loadTrafficData, 15000)
   }
 })
 
@@ -357,14 +370,8 @@ onUnmounted(() => {
   if (isDragging.value) {
     endDrag()
   }
-  if (refreshInterval) {
-    clearInterval(refreshInterval)
-    refreshInterval = null
-  }
-  if (statsInterval) {
-    clearInterval(statsInterval)
-    statsInterval = null
-  }
+  // 清理所有轮询（由 composable 统一管理）
+  polling.stopAll()
   // 清理任务轮询
   if (taskPollingInterval) {
     clearInterval(taskPollingInterval)
@@ -486,24 +493,10 @@ watch(() => route.params.id, async (newId, oldId) => {
   if (newId !== oldId) {
     // 如果路由参数从有效变为无效，或者路由名称变化，清除定时器
     if (!newId || route.name !== 'instance-detail') {
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-        refreshInterval = null
-      }
-      if (statsInterval) {
-        clearInterval(statsInterval)
-        statsInterval = null
-      }
+      polling.stopAll()
     } else {
       // 切换到新实例，先清除所有定时器
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-        refreshInterval = null
-      }
-      if (statsInterval) {
-        clearInterval(statsInterval)
-        statsInterval = null
-      }
+      polling.stopAll()
       if (taskPollingInterval) {
         clearInterval(taskPollingInterval)
         taskPollingInterval = null
@@ -538,6 +531,7 @@ watch(() => route.params.id, async (newId, oldId) => {
       userQuota.value = null
       remainingQuota.value = { port: 0, snapshot: 0 }
       instancePackage.value = null
+      lastFetchedPackageId = null
       
       // 重置 cloud-init 状态
       cloudInitReady.value = true
@@ -569,9 +563,10 @@ watch(() => route.params.id, async (newId, oldId) => {
       // 加载新实例数据
       await loadInstance()
       
-      // 重新启动定时刷新
+      // 重新启动分层轮询
       if (isComponentMounted.value) {
-        refreshInterval = setInterval(loadInstance, 5000)
+        polling.start('instance', loadInstance, 15000)
+        polling.start('traffic', loadTrafficData, 15000)
       }
     }
   }
@@ -584,11 +579,11 @@ watch(isRunning, (running: boolean) => {
   if (!isComponentMounted.value) return
   
   if (running) {
-    // 实例启动时，启动统计信息定时刷新
-    if (!statsInterval && instance.value?.id) {
+    // 实例启动时，启动统计信息定时刷新（5s 间隔，产品需求）
+    if (instance.value?.id) {
       loadStats()
       if (isComponentMounted.value) {
-        statsInterval = setInterval(loadStats, 3000)
+        polling.start('stats', loadStats, 5000)
       }
     }
     // 实例启动时，延迟检查 cloud-init 状态（等待实例完全就绪）
@@ -600,10 +595,7 @@ watch(isRunning, (running: boolean) => {
     }, 3000) // 延迟 3 秒再检测
   } else {
     // 实例停止时，停止统计信息定时刷新
-    if (statsInterval) {
-      clearInterval(statsInterval)
-      statsInterval = null
-    }
+    polling.stop('stats')
     // 实例停止时，重置 cloud-init 状态
     cloudInitReady.value = true
     cloudInitState.value = null
@@ -808,11 +800,8 @@ async function loadInstance(): Promise<void> {
   try {
     // 检查当前路由是否仍然是实例详情页面
     if (!route.params.id || route.name !== 'instance-detail') {
-      // 路由已经变化，清除定时器并返回
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-        refreshInterval = null
-      }
+      // 路由已经变化，停止所有轮询并返回
+      polling.stopAll()
       return
     }
     
@@ -825,28 +814,30 @@ async function loadInstance(): Promise<void> {
         toast.error(t('instance.detail.invalidId'))
         router.replace(getReturnPath())
       }
-      // 清除定时器
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-        refreshInterval = null
-      }
+      // 停止所有轮询
+      polling.stopAll()
       return
     }
     
     const response = await api.instances.get(instanceId)
     instance.value = (response as { instance?: Instance }).instance || null
     if (instance.value) {
-      // 如果实例绑定了套餐，加载套餐信息以检查删除权限
+      // 如果实例绑定了套餐，仅在 package_id 变化时加载套餐信息（套餐信息极少变化，不需要每5秒重新获取）
       if (instance.value.package_id && instance.value.package_id > 0) {
-        try {
-          const pkgResponse = await api.packages.get(instance.value.package_id) as any
-          instancePackage.value = pkgResponse.package || pkgResponse
-        } catch (err) {
-          console.error('Failed to load package:', err)
-          instancePackage.value = null
+        if (lastFetchedPackageId !== instance.value.package_id) {
+          try {
+            const pkgResponse = await api.packages.get(instance.value.package_id) as any
+            instancePackage.value = pkgResponse.package || pkgResponse
+            lastFetchedPackageId = instance.value.package_id
+          } catch (err) {
+            console.error('Failed to load package:', err)
+            instancePackage.value = null
+            lastFetchedPackageId = null
+          }
         }
       } else {
         instancePackage.value = null
+        lastFetchedPackageId = null
       }
       // 初始化配额表单
       instanceQuotaForm.value = {
@@ -872,16 +863,13 @@ async function loadInstance(): Promise<void> {
           loadPromises.push(loadTrafficData())
           await Promise.all(loadPromises)
           
-          // 启动统计信息定时刷新（只有运行时）
-          if (!statsInterval && isRunning.value && isComponentMounted.value) {
-            statsInterval = setInterval(loadStats, 3000)
+          // 启动统计信息定时刷新（只有运行时，5s 间隔）
+          if (isRunning.value && isComponentMounted.value) {
+            polling.start('stats', loadStats, 5000)
           }
         }
       } else {
-        // 非首次加载时也更新流量数据（但不需要等待）
-        loadTrafficData().catch(() => {
-          // 静默失败
-        })
+        // 非首次加载时流量数据由独立轮询自动刷新，此处不再手动调用
       }
     } else {
       // 响应成功但实例为空，跳转到实例列表
@@ -962,9 +950,8 @@ async function loadStats(): Promise<void> {
         instance.value.status = normalizedStatus as 'creating' | 'running' | 'stopped' | 'error' | 'deleted'
         
         // 如果实例不再运行，停止统计信息轮询
-        if (normalizedStatus !== 'running' && statsInterval) {
-          clearInterval(statsInterval)
-          statsInterval = null
+        if (normalizedStatus !== 'running') {
+          polling.stop('stats')
         }
       }
     }
@@ -3019,6 +3006,9 @@ function formatShortDate(dateStr: string | null | undefined): string {
           <TrafficStats
             v-if="activeTab === 'traffic' && instance"
             :instance-id="instance.id"
+            :traffic-data="trafficData"
+            :loading="trafficLoading"
+            @need-refresh="loadTrafficData"
           />
 
           <!-- Snapshots Tab -->

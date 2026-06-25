@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useConfigStore } from '@/stores/config'
+import { useInstanceStore } from '@/stores/instance'
 import type { RouteLocationNormalized, NavigationGuardNext, RouteRecordRaw } from 'vue-router'
 import api, { cancelAllPendingRequests } from '@/api'
 
@@ -101,7 +102,13 @@ const routes: RouteRecordRaw[] = [
     path: '/dashboard',
     name: 'dashboard',
     component: () => import('@/views/DashboardView.vue'),
-    meta: { requiresAuth: true, requiresUser: true, titleKey: 'nav.dashboard', title: '概览' }
+    meta: {
+      requiresAuth: true,
+      requiresUser: true,
+      titleKey: 'nav.dashboard',
+      title: '概览',
+      prefetch: () => useInstanceStore().fetchDashboardSummary(),
+    }
   },
   {
     path: '/market',
@@ -579,16 +586,61 @@ router.beforeEach(async (to: RouteLocationNormalized, _from: RouteLocationNormal
   next()
 })
 
-// 预加载常用页面，提升切换速度
+// 路由级数据预取：不阻塞导航，并行预取目标页面的数据
+router.beforeResolve((to) => {
+  const prefetch = (to.meta as Record<string, unknown>).prefetch
+  if (typeof prefetch === 'function') {
+    // 不阻塞导航，后台并行预取数据
+    Promise.resolve((prefetch as () => unknown)()).catch(() => {})
+  }
+})
+
+// 预加载页面，提升切换速度
 router.isReady().then(() => {
-  // 延迟预加载，避免影响首屏加载
+  const prefetchedRoutes = new Set<string>()
+
+  /**
+   * 通过路由名预加载对应的懒加载组件
+   * Vue Router 4 中，使用 `component: () => import(...)` 定义的路由，
+   * 其 route record 的 components.default 是导入函数，调用即可触发预加载。
+   */
+  function prefetchRoute(routeName: string) {
+    if (prefetchedRoutes.has(routeName)) return
+    prefetchedRoutes.add(routeName)
+
+    const route = router.getRoutes().find(r => r.name === routeName)
+    if (route) {
+      const component = (route as any).components?.default
+      if (typeof component === 'function') {
+        component().catch(() => {})
+      }
+    }
+  }
+
+  // 悬停预加载：用户鼠标悬停在链接上时，提前加载目标页面组件
+  document.addEventListener('mouseover', (e) => {
+    const target = e.target as HTMLElement
+    const link = target.closest('a[href]') as HTMLAnchorElement | null
+    if (!link) return
+    const href = link.getAttribute('href')
+    if (!href || href.startsWith('http') || href.startsWith('#')) return
+    try {
+      const resolved = router.resolve(href)
+      if (resolved.name && typeof resolved.name === 'string') {
+        prefetchRoute(resolved.name)
+      }
+    } catch {
+      // 无效路由，忽略
+    }
+  }, { capture: true, passive: true })
+
+  // 兜底：首屏加载后延迟预加载最核心的页面（延迟拉长到 2s，避免与首屏争抢带宽）
   setTimeout(() => {
-    // 预加载核心页面
-    import('@/views/DashboardView.vue')
-    import('@/views/InstancesView.vue')
-    import('@/views/InstanceDetailView.vue')
-    import('@/views/ProfileView.vue')
-  }, 1000)
+    prefetchRoute('dashboard')
+    prefetchRoute('instances')
+    prefetchRoute('instance-detail')
+    prefetchRoute('profile')
+  }, 2000)
 })
 
 export default router

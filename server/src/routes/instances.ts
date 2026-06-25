@@ -7,7 +7,7 @@ import * as db from '../db/index.js'
 import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { prisma } from '../db/prisma.js'
-import type { InstanceStatus } from '@prisma/client'
+import type { InstanceStatus, Prisma } from '@prisma/client'
 import { getIncusClient } from '../lib/incus/index.js'
 import {
   getInstanceState,
@@ -38,6 +38,7 @@ const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 8)
 import type { Host } from '../types/database.js'
 import {
   getImageDisplayName,
+  getImageDisplayNames,
   getSystemImageAvailabilityForHost,
   isImageCompatibleWithInstanceType,
   isImageCompatibleWithMemory,
@@ -404,6 +405,166 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     return {
       message: 'Instance order updated',
       updated: result.updated
+    }
+  })
+
+  // 获取 Dashboard 统计摘要（轻量接口，替代 pageSize:1000 全量拉取）
+  // 返回：状态计数 + 实例类型计数 + 最近 5 条实例（仅展示字段）
+  fastify.get('/dashboard-summary', {
+    onRequest: [fastify.authenticate],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
+  }, async (request: FastifyRequest) => {
+    const { user } = request
+
+    // 普通用户只能看自己的实例；管理员不指定 userId 时看全部
+    const baseWhere: Prisma.InstanceWhereInput = {
+      status: { not: 'deleted' }
+    }
+    if (user.role !== 'admin') {
+      baseWhere.userId = user.id
+    }
+
+    // 并行执行 3 个轻量查询
+    const [statusGroups, recentRaw, vmCount] = await Promise.all([
+      // 1. 按状态分组计数（单次查询）
+      prisma.instance.groupBy({
+        by: ['status'],
+        where: baseWhere,
+        _count: { _all: true }
+      }),
+      // 2. 最近 5 条实例（仅展示所需字段）
+      prisma.instance.findMany({
+        where: baseWhere,
+        take: 5,
+        orderBy: [
+          { displayOrder: 'asc' },
+          { createdAt: 'desc' },
+          { id: 'asc' }
+        ],
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          image: true,
+          ipv4: true,
+          ipv6: true,
+          networkMode: true,
+          cpu: true,
+          memory: true,
+          disk: true,
+          displayOrder: true,
+          iconBadgeId: true,
+          packagePlanId: true,
+          billingPrice: true,
+          monthlyTrafficLimit: true,
+          monthlyTrafficUsed: true,
+          expiresAt: true,
+          autoRenew: true,
+          createdAt: true,
+          host: {
+            select: {
+              name: true,
+              countryCode: true,
+              natPublicIp: true,
+              natPublicIpv6: true,
+              ipv6Gateway: true,
+              ipAddress: true,
+              url: true
+            }
+          },
+          package: {
+            select: {
+              name: true,
+              instanceType: true,
+              allowInstanceDeletion: true
+            }
+          }
+        }
+      }),
+      // 3. VM 类型实例计数
+      prisma.instance.count({
+        where: {
+          ...baseWhere,
+          package: { instanceType: 'vm' }
+        }
+      })
+    ])
+
+    // 构建状态统计
+    const stats: Record<string, number> = {
+      total: 0,
+      running: 0,
+      stopped: 0,
+      creating: 0,
+      error: 0,
+      suspended: 0
+    }
+    for (const group of statusGroups) {
+      const key = group.status.toLowerCase()
+      const count = group._count._all
+      if (key in stats) {
+        stats[key] = count
+      }
+      stats.total += count
+    }
+
+    // 批量获取镜像显示名称
+    const imageAliases = recentRaw.map(i => i.image)
+    const imageDisplayNames = await getImageDisplayNames(imageAliases)
+
+    // 映射最近实例为前端展示格式（与列表接口一致）
+    const recentInstances = recentRaw.map(i => ({
+      id: i.id,
+      name: i.name,
+      status: i.status,
+      image: i.image,
+      imageName: imageDisplayNames.get(i.image) || null,
+      ipv4: i.ipv4,
+      ipv6: i.ipv6,
+      networkMode: i.networkMode,
+      cpu: i.cpu,
+      memory: i.memory,
+      disk: i.disk,
+      displayOrder: i.displayOrder,
+      iconBadgeId: i.iconBadgeId,
+      packagePlanId: i.packagePlanId,
+      billingPrice: i.billingPrice ? Number(i.billingPrice) : null,
+      monthlyTrafficLimit: i.monthlyTrafficLimit ? i.monthlyTrafficLimit.toString() : null,
+      monthlyTrafficUsed: i.monthlyTrafficUsed ? i.monthlyTrafficUsed.toString() : '0',
+      expiresAt: i.expiresAt?.toISOString() ?? null,
+      expires_at: i.expiresAt?.toISOString() ?? null,
+      autoRenew: i.autoRenew ?? false,
+      createdAt: i.createdAt.toISOString(),
+      host: {
+        name: i.host?.name || 'unknown',
+        country_code: i.host?.countryCode || 'us',
+        nat_public_ip: i.host?.natPublicIp || null
+      },
+      hostCountryCode: i.host?.countryCode || 'us',
+      natPublicIp: i.host?.natPublicIp || null,
+      hostNatPublicIpv6: i.host?.natPublicIpv6 || null,
+      hostIpv6Gateway: i.host?.ipv6Gateway || null,
+      hostIpAddress: i.host?.ipAddress || (() => {
+        if (i.host?.url) {
+          try {
+            const u = new URL(i.host.url)
+            return u.hostname.replace(/^\[|\]$/g, '')
+          } catch { return null }
+        }
+        return null
+      })(),
+      packageName: i.package?.name || null,
+      instanceType: i.package?.instanceType === 'vm' ? 'vm' : 'container',
+      allow_instance_deletion: i.package?.allowInstanceDeletion ?? true
+    }))
+
+    return {
+      stats,
+      instanceTypeStats: {
+        vm: vmCount,
+        container: Math.max(stats.total - vmCount, 0)
+      },
+      recentInstances
     }
   })
 

@@ -881,7 +881,10 @@ function getBalanceLogTypeLabel(type) {
     admin_adjust: t('admin.users.balanceType.admin_adjust'),
     gift: t('admin.users.balanceType.gift'),
     transfer_fee: t('admin.users.balanceType.transfer_fee'),
-    transfer_refund: t('admin.users.balanceType.transfer_refund')
+    transfer_refund: t('admin.users.balanceType.transfer_refund'),
+    balance_transfer_out: t('admin.users.balanceType.balance_transfer_out'),
+    balance_transfer_in: t('admin.users.balanceType.balance_transfer_in'),
+    balance_transfer_fee: t('admin.users.balanceType.balance_transfer_fee')
   }
   return labels[type] || type
 }

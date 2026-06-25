@@ -248,7 +248,12 @@ function getLogTypeName(type: string): string {
     consume: t('profile.billing.logTypes.consume'),
     refund: t('profile.billing.logTypes.refund'),
     admin_adjust: t('profile.billing.logTypes.adminAdjust'),
-    gift: t('profile.billing.logTypes.gift')
+    gift: t('profile.billing.logTypes.gift'),
+    transfer_fee: t('profile.billing.logTypes.transferFee'),
+    transfer_refund: t('profile.billing.logTypes.transferRefund'),
+    balance_transfer_out: t('profile.billing.logTypes.balanceTransferOut'),
+    balance_transfer_in: t('profile.billing.logTypes.balanceTransferIn'),
+    balance_transfer_fee: t('profile.billing.logTypes.balanceTransferFee')
   }
   return map[type] || type
 }

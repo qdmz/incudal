@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import router from './router'
-import i18n, { getLocale } from './locales'
+import i18n, { getLocale, initLocale } from './locales'
 import App from './App.vue'
 import './styles/main.css'
 // flag-icons CSS 改为懒加载，在 FlagIcon.vue 组件首次使用时动态导入，避免全量加载到首屏
@@ -12,8 +12,6 @@ const pinia = createPinia()
 app.use(pinia)
 app.use(router)
 app.use(i18n)
-
-document.documentElement.lang = getLocale()
 
 // 全局错误处理
 app.config.errorHandler = (err, _instance, info) => {
@@ -53,29 +51,33 @@ configStore.loadPublicConfig().then(() => {
   }
 })
 
-app.mount('#app')
+// 预加载用户选择的语言（zh-CN 用户无额外开销，非默认语言异步加载对应 chunk）
+initLocale().finally(() => {
+  document.documentElement.lang = getLocale()
+  app.mount('#app')
 
-// 注册 Service Worker（仅生产环境）
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then(registration => {
-        console.log('Service Worker 注册成功:', registration.scope)
-        
-        // 检测更新
-        registration.addEventListener('updatefound', () => {
-          const newWorker = registration.installing
-          if (newWorker) {
-            newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                console.log('有新版本可用，刷新页面后生效')
-              }
-            })
-          }
+  // 注册 Service Worker（仅生产环境）
+  if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          console.log('Service Worker 注册成功:', registration.scope)
+
+          // 检测更新
+          registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing
+            if (newWorker) {
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('有新版本可用，刷新页面后生效')
+                }
+              })
+            }
+          })
         })
-      })
-      .catch(error => {
-        console.warn('Service Worker 注册失败:', error)
-      })
-  })
-}
+        .catch(error => {
+          console.warn('Service Worker 注册失败:', error)
+        })
+    })
+  }
+})

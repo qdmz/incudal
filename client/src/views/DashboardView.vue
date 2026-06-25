@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useConfigStore } from '@/stores/config'
 import { useThemeStore } from '@/stores/theme'
+import { useInstanceStore } from '@/stores/instance'
+import { usePollingWhenVisible } from '@/composables/usePollingWhenVisible'
 import api, { type VipLevelProgress, type VipProgressCondition, type VipProgressMetric } from '@/api'
 import Skeleton from '@/components/Skeleton.vue'
 import { formatMemory, formatDisk, getStatusInfo } from '@/utils/formatters'
-import type { Instance, UserBalance } from '@/types/api'
+import type { Instance, DashboardSummary, UserBalance } from '@/types/api'
 import DistroIcon from '@/components/icons/DistroIcon.vue'
 import FlagIcon from '@/components/FlagIcon.vue'
 import InstanceDisplayIcon from '@/components/InstanceDisplayIcon.vue'
@@ -98,14 +100,11 @@ function getHostName(instance: Instance): string {
   return instance.host?.name || t('dashboard.unknownHost')
 }
 
-function getStatusKey(instance: Instance): string {
-  return instance.status?.toLowerCase() || 'unknown'
-}
-
 const { t, locale } = useI18n()
 const authStore = useAuthStore()
 const configStore = useConfigStore()
 const themeStore = useThemeStore()
+const instanceStore = useInstanceStore()
 void configStore.loadPublicConfig()
 
 const footerTelegramLink = computed(() => {
@@ -123,7 +122,7 @@ function getTimeGreeting(): string {
   return t('dashboard.greeting.evening')
 }
 
-const instances = ref<Instance[]>([])
+const dashboardSummary = ref<DashboardSummary | null>(null)
 const balanceOverview = ref<UserBalance>({
   balance: 0,
   frozen: 0,
@@ -136,77 +135,90 @@ const userVipProgress = ref<VipLevelProgress | null>(null)
 const userPoints = ref(0)
 const loading = ref(true)
 
-let refreshInterval: ReturnType<typeof setInterval> | null = null
+const polling = usePollingWhenVisible()
 
 onMounted(async () => {
   // 初始化随机骚话
   funnyQuote.value = getRandomFunnyQuote(locale.value)
-  await loadData()
-  refreshInterval = setInterval(loadData, 15000)
+  await loadData(false)
+  // 轻量轮询：仅刷新余额/VIP/积分，不重复拉取实例列表
+  polling.start('dashboard', () => loadData(true), 30000)
 })
 
-onUnmounted(() => {
-  if (refreshInterval) clearInterval(refreshInterval)
-})
-
-// 当组件被 KeepAlive 停用时，暂停定时器
+// 当组件被 KeepAlive 停用时，暂停所有轮询
 onDeactivated(() => {
-  if (refreshInterval) {
-    clearInterval(refreshInterval)
-    refreshInterval = null
-  }
+  polling.stopAll()
 })
 
-// 当组件从 KeepAlive 缓存中激活时，恢复定时器并刷新数据
+// 当组件从 KeepAlive 缓存中激活时，恢复轮询并刷新数据
 onActivated(async () => {
-  // 恢复定时刷新
-  if (!refreshInterval) {
-    refreshInterval = setInterval(loadData, 15000)
-  }
-  // 立即刷新数据以确保最新
-  await loadData()
+  // 恢复轻量轮询
+  polling.start('dashboard', () => loadData(true), 30000)
+  // 立即刷新数据以确保最新（全量加载，含实例列表）
+  await loadData(false)
 })
 
-async function loadData(): Promise<void> {
+/**
+ * 处理用户相关数据（余额/VIP/积分），轻量和全量加载共用
+ */
+function applyUserData(
+  meRes: unknown,
+  balanceRes: { balance?: UserBalance } | null,
+  vipRes: { userVipLevel?: number; userVipBadgeStyle?: VipBadgeStyle | null; userVipProgress?: VipLevelProgress | null } | null,
+  pointsRes: { points?: number } | null
+): void {
+  if ((meRes as { user?: any })?.user) {
+    authStore.user = (meRes as { user: any }).user
+  }
+  if (balanceRes?.balance) {
+    balanceOverview.value = balanceRes.balance
+  }
+  userVipLevel.value = normalizeVipLevel(vipRes?.userVipLevel)
+  userVipBadgeStyle.value = userVipLevel.value > 0
+    ? normalizeVipBadgeStyle(vipRes?.userVipBadgeStyle, userVipLevel.value)
+    : null
+  userVipProgress.value = vipRes?.userVipProgress || null
+  userPoints.value = Number(pointsRes?.points || 0)
+}
+
+/**
+ * 加载 Dashboard 数据
+ * @param light true=轻量轮询（仅刷新余额/VIP/积分，跳过实例列表）；false=全量加载
+ */
+async function loadData(light = false): Promise<void> {
   try {
     // 如果用户未认证，停止定时刷新
     if (!authStore.isAuthenticated) {
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-        refreshInterval = null
-      }
+      polling.stopAll()
       return
     }
-    
-    const [instancesRes, meRes, balanceRes, vipRes, pointsRes] = await Promise.all([
-      api.instances.list({ pageSize: 1000 }),  // 获取所有实例以确保统计准确
-      api.auth.me(),
-      api.billing.getUserBalance().catch(() => null),
-      api.vipLevels.getMyOverview().catch(() => null),
-      api.entertainment.getPoints().catch(() => null)
-    ])
-    const res = instancesRes as { instances?: Instance[] }
-    instances.value = res.instances || []
-    if ((meRes as { user?: any }).user) {
-      authStore.user = (meRes as { user: any }).user
+
+    if (light) {
+      // 轻量轮询：只刷新频繁变化的数据，不重复拉取实例列表
+      const [meRes, balanceRes, vipRes, pointsRes] = await Promise.all([
+        api.auth.me(),
+        api.billing.getUserBalance().catch(() => null),
+        api.vipLevels.getMyOverview().catch(() => null),
+        api.entertainment.getPoints().catch(() => null)
+      ])
+      applyUserData(meRes, balanceRes, vipRes, pointsRes)
+    } else {
+      // 全量加载：包含实例统计摘要（通过共享 Store 带缓存）
+      const [summaryData, meRes, balanceRes, vipRes, pointsRes] = await Promise.all([
+        instanceStore.fetchDashboardSummary(),
+        api.auth.me(),
+        api.billing.getUserBalance().catch(() => null),
+        api.vipLevels.getMyOverview().catch(() => null),
+        api.entertainment.getPoints().catch(() => null)
+      ])
+      dashboardSummary.value = summaryData
+      applyUserData(meRes, balanceRes, vipRes, pointsRes)
     }
-    if (balanceRes?.balance) {
-      balanceOverview.value = balanceRes.balance
-    }
-    userVipLevel.value = normalizeVipLevel(vipRes?.userVipLevel)
-    userVipBadgeStyle.value = userVipLevel.value > 0
-      ? normalizeVipBadgeStyle(vipRes?.userVipBadgeStyle, userVipLevel.value)
-      : null
-    userVipProgress.value = vipRes?.userVipProgress || null
-    userPoints.value = Number(pointsRes?.points || 0)
   } catch (error: any) {
     console.error('Failed to load dashboard:', error)
     // 如果是认证错误（401），停止定时刷新
     if (error?.response?.status === 401 || error?.code === 'UNAUTHORIZED') {
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-        refreshInterval = null
-      }
+      polling.stopAll()
     }
   } finally {
     loading.value = false
@@ -214,18 +226,16 @@ async function loadData(): Promise<void> {
 }
 
 const stats = computed(() => {
-  const all = instances.value
-  // 后端返回的状态值可能是首字母大写（Running, Stopped）或小写（running, stopped）
-  // 使用 toLowerCase() 进行大小写不敏感的比较
+  const s = dashboardSummary.value?.stats
   return {
-    total: all.length,  // 已获取全部实例，直接使用数组长度
-    running: all.filter(i => getStatusKey(i) === 'running').length,
-    stopped: all.filter(i => getStatusKey(i) === 'stopped').length,
-    creating: all.filter(i => getStatusKey(i) === 'creating').length
+    total: s?.total ?? 0,
+    running: s?.running ?? 0,
+    stopped: s?.stopped ?? 0,
+    creating: s?.creating ?? 0
   }
 })
 
-const recentInstances = computed(() => instances.value.slice(0, 5))
+const recentInstances = computed(() => dashboardSummary.value?.recentInstances || [])
 
 const statusOverviewItems = computed(() => [
   {
@@ -243,11 +253,7 @@ const statusOverviewItems = computed(() => [
 ])
 
 const instanceTypeStats = computed(() => {
-  const vm = instances.value.filter(instance => instance.instanceType === 'vm').length
-  return {
-    vm,
-    container: Math.max(instances.value.length - vm, 0)
-  }
+  return dashboardSummary.value?.instanceTypeStats || { vm: 0, container: 0 }
 })
 
 const balanceSummaryItems = computed(() => [
@@ -287,8 +293,8 @@ const subtlePanelClass = computed(() => themeStore.isDark
 )
 
 const instanceListSummary = computed(() => t('dashboard.instanceListSummary', {
-  count: Math.min(recentInstances.value.length, instances.value.length),
-  total: instances.value.length
+  count: Math.min(recentInstances.value.length, stats.value.total),
+  total: stats.value.total
 }))
 
 const vipProgressPercent = computed(() => {
@@ -652,7 +658,7 @@ function getInstanceRowClass(): string {
         </div>
       </div>
 
-      <div v-else-if="instances.length === 0" class="p-8 text-center">
+      <div v-else-if="stats.total === 0" class="p-8 text-center">
         <div 
           class="w-16 h-16 mx-auto mb-4 rounded-lg flex items-center justify-center"
           :class="themeStore.isDark ? 'bg-gray-800' : 'bg-gray-100'"
@@ -766,7 +772,7 @@ function getInstanceRowClass(): string {
       </div>
 
       <div 
-        v-if="instances.length > 5" 
+        v-if="stats.total > 5" 
         class="px-4 py-3 border-t text-center"
         :class="themeStore.isDark ? 'border-gray-800' : 'border-gray-200'"
       >
@@ -775,7 +781,7 @@ function getInstanceRowClass(): string {
           class="text-sm transition-colors"
           :class="themeStore.isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700'"
         >
-          {{ $t('dashboard.viewAllInstancesWithCount', { count: instances.length }) }} →
+          {{ $t('dashboard.viewAllInstancesWithCount', { count: stats.total }) }} →
         </RouterLink>
       </div>
     </div>

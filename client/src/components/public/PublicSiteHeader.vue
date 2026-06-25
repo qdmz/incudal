@@ -125,8 +125,8 @@ function toggleLangMenu(): void {
   langMenuOpen.value = !langMenuOpen.value
 }
 
-function changeLocale(nextLocale: Locale): void {
-  setLocale(nextLocale)
+async function changeLocale(nextLocale: Locale): Promise<void> {
+  await setLocale(nextLocale)
   langMenuOpen.value = false
 }
 

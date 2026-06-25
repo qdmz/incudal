@@ -21,6 +21,7 @@ import type {
   Instance,
   InstanceWithDetails,
   InstanceStats,
+  DashboardSummary,
   CreateInstanceRequest,
   UpdateInstanceRequest,
   ChangeHostOptionsResponse,
@@ -314,6 +315,8 @@ const http: AxiosInstance = axios.create({
 const pendingControllers = new Set<AbortController>()
 type AxiosSignal = NonNullable<InternalAxiosRequestConfig['signal']>
 const controllerBySignal = new Map<AxiosSignal, AbortController>()
+// GET 请求去重 Map（声明于此以便 cancelAllPendingRequests 同步清理）
+const pendingGetRequests = new Map<string, Promise<unknown>>()
 
 /**
  * 取消所有待处理的请求
@@ -329,6 +332,7 @@ export function cancelAllPendingRequests(): void {
   })
   pendingControllers.clear()
   controllerBySignal.clear()
+  pendingGetRequests.clear()
 }
 
 // 刷新 token 的锁，防止多个请求同时触发刷新
@@ -686,6 +690,28 @@ http.interceptors.response.use(
   }
 )
 
+// ==================== GET 请求去重机制 ====================
+// 对并发的相同 GET 请求进行去重，复用同一个 Promise，避免组件层级间的重复请求
+// 仅影响真正并发的相同请求（如父子组件同时调用同一接口），串行/轮询请求不受影响（请求完成后即从 Map 移除）
+
+function getRequestKey(url: string, params?: unknown): string {
+  return params ? `${url}?${JSON.stringify(params)}` : url
+}
+
+const _originalGet = http.get.bind(http)
+;(http as any).get = function (url: string, config?: any) {
+  const key = getRequestKey(url, config?.params)
+  const existing = pendingGetRequests.get(key)
+  if (existing) {
+    return existing
+  }
+  const promise = _originalGet(url, config).finally(() => {
+    pendingGetRequests.delete(key)
+  })
+  pendingGetRequests.set(key, promise)
+  return promise
+}
+
 // API 模块
 const api = {
   // 认证
@@ -869,6 +895,7 @@ const api = {
   instances: {
     list: (params: Record<string, unknown> = {}): Promise<PaginatedResponse<InstanceWithDetails> & { availableCountries?: string[] }> =>
       http.get('/instances', { params }),
+    getDashboardSummary: (): Promise<DashboardSummary> => http.get('/instances/dashboard-summary'),
     get: (id: number): Promise<InstanceWithDetails> => http.get(`/instances/${id}`),
     getPassword: (id: number): Promise<{ rootPassword: string | null }> => http.get(`/instances/${id}/password`),
     getStats: (id: number): Promise<InstanceStats & { status?: string }> => http.get(`/instances/${id}/stats`),
@@ -2183,6 +2210,8 @@ const api = {
       emailDomainWhitelistEnabled?: boolean
       allowedEmailDomains?: string[] | null
       transferFee?: number
+      balanceTransferEnabled?: boolean
+      balanceTransferFee?: number
       footerContactEmail?: string | null
       footerTelegramLink?: string | null
       hostingMarketEntryEnabled?: boolean
@@ -3259,6 +3288,7 @@ const api = {
         amount: number
         balanceBefore: number
         balanceAfter: number
+        orderId?: string | null
         instanceId: number | null
         instanceName: string | null
         remark: string | null
@@ -3268,6 +3298,51 @@ const api = {
       page: number
       pageSize: number
     }> => http.get('/balance/me/logs', { params }),
+
+    // 解析余额转账收款人
+    getBalanceTransferRecipient: (username: string): Promise<{
+      recipient: {
+        id: number
+        username: string
+        avatarStyle: string
+        avatarBadgeId: string | null
+      }
+    }> => http.get('/balance/transfer/recipient', { params: { username } }),
+
+    // 预览余额转账
+    previewBalanceTransfer: (recipientId: number, amount: number): Promise<{
+      preview: {
+        recipient: {
+          id: number
+          username: string
+          avatarStyle: string
+          avatarBadgeId: string | null
+        }
+        amount: number
+        fee: number
+        totalDeduction: number
+        currentBalance: number
+        balanceAfter: number
+      }
+    }> => http.post('/balance/transfer/preview', { recipientId, amount }),
+
+    // 提交余额转账
+    createBalanceTransfer: (recipientId: number, amount: number): Promise<{
+      transfer: {
+        transferNo: string
+        recipient: {
+          id: number
+          username: string
+          avatarStyle: string
+          avatarBadgeId: string | null
+        }
+        amount: number
+        fee: number
+        totalDeduction: number
+        currentBalance: number
+        balanceAfter: number
+      }
+    }> => http.post('/balance/transfer', { recipientId, amount }),
 
     // 获取可用支付渠道
     getPaymentProviders: (): Promise<{

@@ -75,8 +75,8 @@ function toggleLangMenu() {
   langMenuOpen.value = !langMenuOpen.value
 }
 
-function changeLocale(code: Locale) {
-  setLocale(code)
+async function changeLocale(code: Locale) {
+  await setLocale(code)
   langMenuOpen.value = false
 }
 

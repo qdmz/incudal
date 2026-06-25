@@ -506,6 +506,26 @@ export interface Instance {
   updated_at: string
 }
 
+/**
+ * Dashboard 统计摘要（轻量接口返回）
+ * 替代 pageSize:1000 全量拉取，仅返回统计计数和最近 5 条实例
+ */
+export interface DashboardSummary {
+  stats: {
+    total: number
+    running: number
+    stopped: number
+    creating: number
+    error: number
+    suspended: number
+  }
+  instanceTypeStats: {
+    vm: number
+    container: number
+  }
+  recentInstances: Instance[]
+}
+
 export interface InstanceWithDetails extends Omit<Instance, 'host'> {
   user?: Pick<User, 'id' | 'username' | 'email'>
   // 实例详情页面的宿主机信息（比列表更详细）

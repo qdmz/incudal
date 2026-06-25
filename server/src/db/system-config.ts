@@ -117,6 +117,8 @@ export async function initSystemConfig(): Promise<void> {
         { key: 'email_allowed_domains', value: '', type: 'string', label: '允许的邮箱域名', description: '允许注册的邮箱域名列表，逗号分隔' },
         // 转移手续费配置
         { key: 'transfer_fee', value: '0', type: 'number', label: '转移手续费', description: '实例转移手续费（元），0表示免费，发起时扣除，拒绝时退还' },
+        { key: 'balance_transfer_enabled', value: 'false', type: 'boolean', label: '允许余额转账', description: '开启后，用户可在钱包中向其他用户转账余额' },
+        { key: 'balance_transfer_fee', value: '0', type: 'number', label: '余额转账手续费', description: '用户发起余额转账时额外支付的固定手续费（元/次），0 表示免费' },
         // Lsky 工单图片配置
         { key: 'ticket_image_lsky_base_url', value: '', type: 'string', label: 'Lsky 地址', description: '兰空图床站点地址，例如 https://img.example.com' },
         { key: 'ticket_image_lsky_token', value: '', type: 'secret', label: 'Lsky Token', description: '兰空图床 API Token（仅后端使用）' },

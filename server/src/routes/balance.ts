@@ -8,6 +8,30 @@ import { createLog } from '../db/logs.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import { sendBalanceAdjustedEmail } from '../lib/mailer.js'
 
+const balanceTransferErrorStatus: Record<string, number> = {
+  USER_NOT_FOUND: 404,
+  BALANCE_TRANSFER_DISABLED: 403,
+  BALANCE_TRANSFER_TO_SELF: 400,
+  BALANCE_TRANSFER_RECIPIENT_BANNED: 400,
+  BALANCE_TRANSFER_AMOUNT_INVALID: 400,
+  BALANCE_TRANSFER_INSUFFICIENT_BALANCE: 400,
+  BALANCE_TRANSFER_BALANCE_LIMIT_EXCEEDED: 400
+}
+
+function mapBalanceTransferError(error: unknown): { status: number; code: typeof ErrorCode[keyof typeof ErrorCode] } {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message === 'USER_NOT_FOUND') {
+    return { status: 404, code: ErrorCode.USER_NOT_FOUND }
+  }
+  if (message in balanceTransferErrorStatus && message in ErrorCode) {
+    return {
+      status: balanceTransferErrorStatus[message],
+      code: ErrorCode[message as keyof typeof ErrorCode]
+    }
+  }
+  return { status: 500, code: ErrorCode.INTERNAL_ERROR }
+}
+
 export default async function balanceRoutes(fastify: FastifyInstance) {
   // ==================== 用户余额 API ====================
 
@@ -114,6 +138,157 @@ export default async function balanceRoutes(fastify: FastifyInstance) {
       page: result.page,
       pageSize: result.pageSize,
       stats
+    }
+  })
+
+  // 解析余额转账收款人
+  fastify.get<{
+    Querystring: { username: string }
+  }>('/transfer/recipient', {
+    onRequest: [fastify.authenticateUser],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } }
+  }, async (request: FastifyRequest<{ Querystring: { username: string } }>, reply: FastifyReply) => {
+    const transferEnabled = await db.getSystemConfigBoolean('balance_transfer_enabled', false)
+    if (!transferEnabled) {
+      return reply.code(403).send(apiError(ErrorCode.BALANCE_TRANSFER_DISABLED))
+    }
+
+    const username = request.query.username?.trim()
+    if (!username || username.length < 2) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'Username must be at least 2 characters'))
+    }
+
+    const recipient = await db.findUserByUsername(username)
+    if (!recipient) {
+      return reply.code(404).send(apiError(ErrorCode.USER_NOT_FOUND))
+    }
+    if (recipient.id === request.user.id) {
+      return reply.code(400).send(apiError(ErrorCode.BALANCE_TRANSFER_TO_SELF))
+    }
+    if (recipient.status === 'banned') {
+      return reply.code(400).send(apiError(ErrorCode.BALANCE_TRANSFER_RECIPIENT_BANNED))
+    }
+
+    return {
+      recipient: {
+        id: recipient.id,
+        username: recipient.username,
+        avatarStyle: recipient.avatar_style,
+        avatarBadgeId: recipient.avatar_badge_id ?? null
+      }
+    }
+  })
+
+  // 预览余额转账
+  fastify.post<{
+    Body: { recipientId: number; amount: number }
+  }>('/transfer/preview', {
+    onRequest: [fastify.authenticateUser],
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['recipientId', 'amount'],
+        properties: {
+          recipientId: { type: 'integer', minimum: 1 },
+          amount: { type: 'number', minimum: 0.01 }
+        }
+      }
+    }
+  }, async (request: FastifyRequest<{ Body: { recipientId: number; amount: number } }>, reply: FastifyReply) => {
+    const transferEnabled = await db.getSystemConfigBoolean('balance_transfer_enabled', false)
+    if (!transferEnabled) {
+      return reply.code(403).send(apiError(ErrorCode.BALANCE_TRANSFER_DISABLED))
+    }
+
+    try {
+      const fee = await db.getSystemConfigFloat('balance_transfer_fee', 0)
+      const preview = await db.buildBalanceTransferPreview({
+        fromUserId: request.user.id,
+        recipientId: request.body.recipientId,
+        amount: request.body.amount,
+        fee
+      })
+
+      return {
+        preview: {
+          recipient: {
+            id: preview.recipient.id,
+            username: preview.recipient.username,
+            avatarStyle: preview.recipient.avatarStyle,
+            avatarBadgeId: preview.recipient.avatarBadgeId ?? null
+          },
+          amount: preview.amount,
+          fee: preview.fee,
+          totalDeduction: preview.totalDeduction,
+          currentBalance: preview.currentBalance,
+          balanceAfter: preview.balanceAfter
+        }
+      }
+    } catch (error) {
+      const mapped = mapBalanceTransferError(error)
+      return reply.code(mapped.status).send(apiError(mapped.code))
+    }
+  })
+
+  // 提交余额转账
+  fastify.post<{
+    Body: { recipientId: number; amount: number }
+  }>('/transfer', {
+    onRequest: [fastify.authenticateUser],
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['recipientId', 'amount'],
+        properties: {
+          recipientId: { type: 'integer', minimum: 1 },
+          amount: { type: 'number', minimum: 0.01 }
+        }
+      }
+    }
+  }, async (request: FastifyRequest<{ Body: { recipientId: number; amount: number } }>, reply: FastifyReply) => {
+    const transferEnabled = await db.getSystemConfigBoolean('balance_transfer_enabled', false)
+    if (!transferEnabled) {
+      return reply.code(403).send(apiError(ErrorCode.BALANCE_TRANSFER_DISABLED))
+    }
+
+    try {
+      const fee = await db.getSystemConfigFloat('balance_transfer_fee', 0)
+      const result = await db.transferBalanceBetweenUsers({
+        fromUserId: request.user.id,
+        recipientId: request.body.recipientId,
+        amount: request.body.amount,
+        fee
+      })
+
+      await createLog(
+        request.user.id,
+        'balance',
+        'balance.transfer',
+        `Transferred ${result.amount} to user ${result.recipient.username}, fee ${result.fee}, transferNo ${result.transferNo}`,
+        'success'
+      )
+
+      return {
+        transfer: {
+          transferNo: result.transferNo,
+          recipient: {
+            id: result.recipient.id,
+            username: result.recipient.username,
+            avatarStyle: result.recipient.avatarStyle,
+            avatarBadgeId: result.recipient.avatarBadgeId ?? null
+          },
+          amount: result.amount,
+          fee: result.fee,
+          totalDeduction: result.totalDeduction,
+          currentBalance: result.currentBalance,
+          balanceAfter: result.balanceAfter
+        }
+      }
+    } catch (error) {
+      const mapped = mapBalanceTransferError(error)
+      return reply.code(mapped.status).send(apiError(mapped.code))
     }
   })
 

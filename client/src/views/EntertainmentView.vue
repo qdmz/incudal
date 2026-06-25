@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted, nextTick, watch } from 'vue'
+import { ref, onMounted, computed, onUnmounted, onActivated, onDeactivated, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import api from '@/api'
@@ -161,6 +161,19 @@ onUnmounted(() => {
     clearInterval(bulbTimer)
     bulbTimer = null
   }
+})
+
+// KeepAlive 缓存停用时暂停灯泡定时器，避免后台 CPU 浪费
+onDeactivated(() => {
+  if (bulbTimer) {
+    clearInterval(bulbTimer)
+    bulbTimer = null
+  }
+})
+
+// KeepAlive 缓存激活时无需自动重启灯泡（仅在抽奖旋转时才需要）
+onActivated(() => {
+  // 灯泡定时器由 startBulbBlink() 按需启动，这里不自动重启
 })
 
 // 监听主选项卡切换

@@ -58,7 +58,7 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
     fastify.get('/public', {
         config: { rateLimit: { max: 60, timeWindow: '1 minute' } }
     }, async (_request: FastifyRequest, _reply: FastifyReply) => {
-        const [registrationEnabled, requireInviteCode, ticketEnabled, freeSiteMode, affRebateEnabled, mailAvailable, turnstileEnabled, turnstileSiteKey, avatarApiBase, smtpEnabled, emailDomainWhitelistEnabled, emailAllowedDomains, transferFee, footerContactEmail, footerTelegramLink, hostingMarketEntryEnabled, hostingNotice, brandName, brandSubtitle, brandLogoUrl, popupAnnouncementConfig, popupPromoImageUrlConfig, popupPromoPackageIdConfig] = await Promise.all([
+        const [registrationEnabled, requireInviteCode, ticketEnabled, freeSiteMode, affRebateEnabled, mailAvailable, turnstileEnabled, turnstileSiteKey, avatarApiBase, smtpEnabled, emailDomainWhitelistEnabled, emailAllowedDomains, transferFee, balanceTransferEnabled, balanceTransferFee, footerContactEmail, footerTelegramLink, hostingMarketEntryEnabled, hostingNotice, brandName, brandSubtitle, brandLogoUrl, popupAnnouncementConfig, popupPromoImageUrlConfig, popupPromoPackageIdConfig] = await Promise.all([
             db.isRegistrationEnabled(),
             db.isInviteCodeRequired(),
             db.getSystemConfigBoolean('ticket_enabled', true),
@@ -72,6 +72,8 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
             db.getSystemConfigBoolean('email_domain_whitelist_enabled', false),
             db.getSystemConfig('email_allowed_domains'),
             db.getSystemConfigFloat('transfer_fee', 0),
+            db.getSystemConfigBoolean('balance_transfer_enabled', false),
+            db.getSystemConfigFloat('balance_transfer_fee', 0),
             db.getSystemConfig('footer_contact_email'),
             db.getSystemConfig('footer_telegram_link'),
             db.getSystemConfigBoolean('hosting_market_entry_enabled', true),
@@ -178,6 +180,8 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
             emailDomainWhitelistEnabled,
             allowedEmailDomains: allowedDomains,
             transferFee,
+            balanceTransferEnabled,
+            balanceTransferFee,
             footerContactEmail,
             footerTelegramLink,
             hostingMarketEntryEnabled,
@@ -309,6 +313,8 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
             'email_allowed_domains',
             // Transfer fee
             'transfer_fee',
+            'balance_transfer_enabled',
+            'balance_transfer_fee',
             // Ticket image Lsky config
             'ticket_image_lsky_base_url',
             'ticket_image_lsky_token',
@@ -317,7 +323,7 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
         ]
 
         // 布尔类型配置键
-        const booleanKeys = ['registration_enabled', 'require_invite_code', 'hosting_feature_enabled', 'hosting_market_entry_enabled', 'aff_rebate_enabled', 'ticket_enabled', 'free_site_mode', 'free_site_register_gift_enabled', 'turnstile_enabled', 'telegram_bot_enabled', 'telegram_group_join_enabled', 'telegram_vip_group_join_enabled', 'smtp_enabled', 'smtp_secure', 'email_domain_whitelist_enabled']
+        const booleanKeys = ['registration_enabled', 'require_invite_code', 'hosting_feature_enabled', 'hosting_market_entry_enabled', 'aff_rebate_enabled', 'ticket_enabled', 'free_site_mode', 'free_site_register_gift_enabled', 'turnstile_enabled', 'telegram_bot_enabled', 'telegram_group_join_enabled', 'telegram_vip_group_join_enabled', 'smtp_enabled', 'smtp_secure', 'email_domain_whitelist_enabled', 'balance_transfer_enabled']
         // 字符串类型配置键
         const stringKeys = [
             'turnstile_site_key',
@@ -490,14 +496,14 @@ export default async function systemConfigRoutes(fastify: FastifyInstance) {
                 config.value = (Math.round(num * 100) / 100).toString()
                 continue
             }
-            // 转移手续费特殊验证（0-100，支持两位小数）
-            if (config.key === 'transfer_fee') {
+            // 转移/转账手续费特殊验证（0-100，支持两位小数）
+            if (config.key === 'transfer_fee' || config.key === 'balance_transfer_fee') {
                 const value = config.value.trim()
                 const num = Number(value)
                 if (!decimalMoneyPattern.test(value) || !Number.isFinite(num) || num < 0 || num > maxTransferFee) {
                     return reply.code(400).send(apiError(
                         ErrorCode.CONFIG_INVALID_VALUE,
-                        `转移手续费必须在 0-${maxTransferFee} 元之间，最多支持两位小数`
+                        `手续费必须在 0-${maxTransferFee} 元之间，最多支持两位小数`
                     ))
                 }
                 config.value = (Math.round(num * 100) / 100).toString()

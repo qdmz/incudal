@@ -8,6 +8,12 @@ import api from '@/api'
 
 const props = defineProps<{
   instanceId: number
+  trafficData: TrafficData | null
+  loading: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'need-refresh'): void
 }>()
 
 const { t } = useI18n()
@@ -41,29 +47,16 @@ interface TrafficHistoryItem {
   totalFormatted: string
 }
 
-const trafficData = ref<TrafficData | null>(null)
 const trafficHistory = ref<TrafficHistoryItem[]>([])
 const periodInfo = ref<{ periodStart: string; periodEnd: string } | null>(null)
-const loading = ref(true)
 const historyLoading = ref(true)
 const showResetConfirm = ref(false)
 const resetting = ref(false)
 
 onMounted(async () => {
-  await Promise.all([loadTrafficData(), loadTrafficHistory()])
+  // 流量摘要数据由父组件 InstanceDetailView 统一加载和轮询，这里仅加载历史数据
+  await loadTrafficHistory()
 })
-
-async function loadTrafficData() {
-  loading.value = true
-  try {
-    const data = await api.traffic.getInstanceTraffic(props.instanceId)
-    trafficData.value = data
-  } catch (error) {
-    console.error('Failed to load traffic data:', error)
-  } finally {
-    loading.value = false
-  }
-}
 
 async function loadTrafficHistory() {
   historyLoading.value = true
@@ -83,16 +76,16 @@ async function loadTrafficHistory() {
 
 // 格式化周期日期显示 (MM-DD ~ MM-DD)
 const periodDateRange = computed(() => {
-  if (!trafficData.value) return ''
-  const start = trafficData.value.periodStart.slice(5) // MM-DD
-  const end = trafficData.value.periodEnd.slice(5)
+  if (!props.trafficData) return ''
+  const start = props.trafficData.periodStart.slice(5) // MM-DD
+  const end = props.trafficData.periodEnd.slice(5)
   return `${start} ~ ${end}`
 })
 
 // 状态标签样式
 const statusBadgeClass = computed(() => {
-  if (!trafficData.value) return ''
-  switch (trafficData.value.trafficStatus) {
+  if (!props.trafficData) return ''
+  switch (props.trafficData.trafficStatus) {
     case 'LIMITED':
       return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
     case 'WARNING':
@@ -103,8 +96,8 @@ const statusBadgeClass = computed(() => {
 })
 
 const statusLabel = computed(() => {
-  if (!trafficData.value) return ''
-  switch (trafficData.value.trafficStatus) {
+  if (!props.trafficData) return ''
+  switch (props.trafficData.trafficStatus) {
     case 'LIMITED':
       return t('traffic.status.limited')
     case 'WARNING':
@@ -115,8 +108,8 @@ const statusLabel = computed(() => {
 })
 
 const canResetTraffic = computed(() => {
-  if (!trafficData.value) return false
-  return trafficData.value.resetAllowed && BigInt(trafficData.value.monthlyUsed || '0') > 0n
+  if (!props.trafficData) return false
+  return props.trafficData.resetAllowed && BigInt(props.trafficData.monthlyUsed || '0') > 0n
 })
 
 function openResetConfirm() {
@@ -125,26 +118,13 @@ function openResetConfirm() {
 }
 
 async function confirmResetTraffic() {
-  if (!trafficData.value || resetting.value) return
+  if (!props.trafficData || resetting.value) return
 
   resetting.value = true
   try {
-    const result = await api.traffic.resetInstanceTraffic(props.instanceId)
-    if (result.traffic) {
-      trafficData.value = {
-        ...trafficData.value,
-        monthlyUsed: result.traffic.monthlyUsed,
-        monthlyUsedFormatted: result.traffic.monthlyUsedFormatted,
-        trafficStatus: result.traffic.trafficStatus,
-        percentage: result.traffic.percentage,
-        resetAllowed: result.traffic.resetAllowed,
-        resetPrice: result.traffic.resetPrice,
-        resetPriceFormatted: result.traffic.resetPriceFormatted,
-        resetDisabledReason: result.traffic.resetDisabledReason
-      }
-    } else {
-      await loadTrafficData()
-    }
+    await api.traffic.resetInstanceTraffic(props.instanceId)
+    // 通知父组件重新加载流量数据（父组件的 loadTrafficData 会获取最新数据）
+    emit('need-refresh')
     showResetConfirm.value = false
     toast.success(t('traffic.resetSuccess'))
   } catch (error) {
@@ -156,9 +136,9 @@ async function confirmResetTraffic() {
 
 // 进度条颜色
 const progressBarClass = computed(() => {
-  if (!trafficData.value) return 'bg-blue-500'
-  if (trafficData.value.percentage >= 100) return 'bg-red-500'
-  if (trafficData.value.percentage >= 80) return 'bg-yellow-500'
+  if (!props.trafficData) return 'bg-blue-500'
+  if (props.trafficData.percentage >= 100) return 'bg-red-500'
+  if (props.trafficData.percentage >= 80) return 'bg-yellow-500'
   return 'bg-blue-500'
 })
 

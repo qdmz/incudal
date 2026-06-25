@@ -136,6 +136,12 @@ export const ErrorCode = {
     BALANCE_INSUFFICIENT: 'BALANCE_INSUFFICIENT',
     TRAFFIC_RESET_NOT_ALLOWED: 'TRAFFIC_RESET_NOT_ALLOWED',
     TRAFFIC_RESET_NOT_NEEDED: 'TRAFFIC_RESET_NOT_NEEDED',
+    BALANCE_TRANSFER_DISABLED: 'BALANCE_TRANSFER_DISABLED',
+    BALANCE_TRANSFER_TO_SELF: 'BALANCE_TRANSFER_TO_SELF',
+    BALANCE_TRANSFER_RECIPIENT_BANNED: 'BALANCE_TRANSFER_RECIPIENT_BANNED',
+    BALANCE_TRANSFER_AMOUNT_INVALID: 'BALANCE_TRANSFER_AMOUNT_INVALID',
+    BALANCE_TRANSFER_INSUFFICIENT_BALANCE: 'BALANCE_TRANSFER_INSUFFICIENT_BALANCE',
+    BALANCE_TRANSFER_BALANCE_LIMIT_EXCEEDED: 'BALANCE_TRANSFER_BALANCE_LIMIT_EXCEEDED',
 
     // Host resource errors
     HOST_UNAVAILABLE: 'HOST_UNAVAILABLE',
@@ -469,6 +475,12 @@ export const ErrorMessages: Record<ErrorCodeType, string> = {
     [ErrorCode.BALANCE_INSUFFICIENT]: 'Insufficient balance',
     [ErrorCode.TRAFFIC_RESET_NOT_ALLOWED]: 'Traffic reset is not allowed for this instance',
     [ErrorCode.TRAFFIC_RESET_NOT_NEEDED]: 'No traffic usage to reset',
+    [ErrorCode.BALANCE_TRANSFER_DISABLED]: 'Balance transfer is disabled',
+    [ErrorCode.BALANCE_TRANSFER_TO_SELF]: 'Cannot transfer balance to yourself',
+    [ErrorCode.BALANCE_TRANSFER_RECIPIENT_BANNED]: 'Cannot transfer balance to a banned user',
+    [ErrorCode.BALANCE_TRANSFER_AMOUNT_INVALID]: 'Invalid transfer amount',
+    [ErrorCode.BALANCE_TRANSFER_INSUFFICIENT_BALANCE]: 'Insufficient balance for this transfer',
+    [ErrorCode.BALANCE_TRANSFER_BALANCE_LIMIT_EXCEEDED]: 'Recipient balance would exceed the allowed limit',
 
     // Host resource errors
     [ErrorCode.HOST_UNAVAILABLE]: 'Selected host is unavailable or has insufficient resources',

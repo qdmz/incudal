@@ -248,6 +248,9 @@ enum BalanceLogType {
   gift              // 赠送
   transfer_fee      // 转移手续费
   transfer_refund   // 转移手续费退还
+  balance_transfer_out // 余额转账转出
+  balance_transfer_in  // 余额转账转入
+  balance_transfer_fee // 余额转账手续费
   hosting_withdraw  // 托管余额提现
   hosting_deduction // 托管实例销毁扣款（从面板余额补扣）
   invite_generate   // 生成邀请码扣款

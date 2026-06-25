@@ -6,6 +6,7 @@ import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useConfigStore } from '@/stores/config'
 import { useThemeStore } from '@/stores/theme'
+import { usePollingWhenVisible } from '@/composables/usePollingWhenVisible'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import { useToast } from '@/stores/toast'
 import { getLocalizedCountryName } from '@/utils/countryDisplay'
@@ -183,7 +184,7 @@ const canReorderInstances = computed(() => (
   )
 ))
 
-let refreshInterval: ReturnType<typeof setInterval> | null = null
+const polling = usePollingWhenVisible()
 let orderFeedbackTimer: ReturnType<typeof setTimeout> | null = null
 
 // 监听搜索变化（防抖）
@@ -277,15 +278,15 @@ onMounted(async (): Promise<void> => {
   }
   
   await loadInstances()
-  // 每 15 秒自动刷新
-  refreshInterval = setInterval(loadInstances, 15000)
+  // 每 15 秒自动刷新（可见性感知）
+  polling.start('instances', loadInstances, 15000)
 })
 
 onUnmounted(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', updateViewportState)
   }
-  if (refreshInterval) clearInterval(refreshInterval)
+  polling.stopAll()
   if (searchTimer) {
     clearTimeout(searchTimer)
     searchTimer = null
@@ -293,12 +294,9 @@ onUnmounted(() => {
   clearInstanceOrderFeedback()
 })
 
-// 当组件被 KeepAlive 停用时，暂停定时器
+// 当组件被 KeepAlive 停用时，暂停所有轮询
 onDeactivated(() => {
-  if (refreshInterval) {
-    clearInterval(refreshInterval)
-    refreshInterval = null
-  }
+  polling.stopAll()
   if (searchTimer) {
     clearTimeout(searchTimer)
     searchTimer = null
@@ -309,10 +307,8 @@ onDeactivated(() => {
 // 当组件从 KeepAlive 缓存中激活时，重新加载数据
 onActivated(async () => {
   updateViewportState()
-  // 恢复定时刷新
-  if (!refreshInterval) {
-    refreshInterval = setInterval(loadInstances, 15000)
-  }
+  // 恢复定时刷新（可见性感知）
+  polling.start('instances', loadInstances, 15000)
   
   // 检查路由参数是否与当前筛选一致
   const currentUserId = route.query.userId ? parseInt(route.query.userId as string) : null

@@ -114,6 +114,13 @@ export const rateLimitRules: RateLimitRule[] = [
         description: '获取实例列表'
     },
     {
+        path: '/api/instances/dashboard-summary',
+        method: 'GET',
+        max: 30,
+        timeWindow: '1 minute',
+        description: 'Dashboard 统计摘要'
+    },
+    {
         path: '/api/instances/*/start',
         method: 'POST',
         max: 10,

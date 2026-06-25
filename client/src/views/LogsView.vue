@@ -201,10 +201,10 @@ onMounted(async () => {
     <!-- Logs Table -->
     <SkeletonLoader v-if="loading" type="table" />
 
-    <div v-else class="card overflow-x-auto">
-      <div class="overflow-x-auto">
+    <div v-else class="card">
+      <div class="overflow-auto" style="max-height: 65vh">
         <table class="w-full min-w-[800px]">
-          <thead>
+          <thead class="sticky top-0 z-10" :class="themeStore.isDark ? 'bg-gray-900' : 'bg-white'">
             <tr class="border-b border-themed">
               <th class="text-left py-3 px-4 text-xs font-medium text-themed-muted whitespace-nowrap">{{ $t('logs.time') }}</th>
               <th class="text-left py-3 px-4 text-xs font-medium text-themed-muted whitespace-nowrap">{{ $t('logs.user') }}</th>
@@ -223,7 +223,7 @@ onMounted(async () => {
             <tr 
               v-for="log in logs" 
               :key="log.id"
-              class="border-b border-themed hover:bg-themed/5 transition-colors"
+              class="log-row border-b border-themed hover:bg-themed/5 transition-colors"
             >
               <td class="py-3 px-4 text-sm text-themed-secondary whitespace-nowrap">
                 {{ formatDate(log.created_at) }}
@@ -354,3 +354,9 @@ onMounted(async () => {
   </div>
 </template>
 
+<style scoped>
+.log-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 48px;
+}
+</style>

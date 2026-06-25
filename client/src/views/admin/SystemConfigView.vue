@@ -103,6 +103,8 @@ const form = ref({
   email_allowed_domains: '',
   // 转移手续费配置
   transfer_fee: 0,
+  balance_transfer_enabled: false,
+  balance_transfer_fee: 0,
   // 侧边栏底部联系方式
   footer_contact_email: 'incudal@sent.com',
   // 工单图片 Lsky 配置
@@ -143,10 +145,10 @@ const configMeta = computed(() => {
 const numericConfigKeys = ['default_quota_host', 'default_quota_friend', 'default_quota_package', 'smtp_port', 'free_site_register_gift_points', 'invite_default_expire_days']
 
 // 浮点数类型的配置键
-const floatConfigKeys = ['transfer_fee', 'free_site_register_gift_balance']
+const floatConfigKeys = ['transfer_fee', 'balance_transfer_fee', 'free_site_register_gift_balance']
 
 // 布尔类型的配置键
-const booleanConfigKeys = ['registration_enabled', 'require_invite_code', 'hosting_feature_enabled', 'hosting_market_entry_enabled', 'aff_rebate_enabled', 'ticket_enabled', 'free_site_mode', 'free_site_register_gift_enabled', 'turnstile_enabled', 'smtp_enabled', 'smtp_secure', 'email_domain_whitelist_enabled']
+const booleanConfigKeys = ['registration_enabled', 'require_invite_code', 'hosting_feature_enabled', 'hosting_market_entry_enabled', 'aff_rebate_enabled', 'ticket_enabled', 'free_site_mode', 'free_site_register_gift_enabled', 'turnstile_enabled', 'smtp_enabled', 'smtp_secure', 'email_domain_whitelist_enabled', 'balance_transfer_enabled']
 
 // 字符串类型的配置键
 const stringConfigKeys = ['turnstile_site_key', 'turnstile_secret_key', 'avatar_api_base', 'smtp_host', 'smtp_username', 'smtp_password', 'smtp_from_email', 'smtp_from_name', 'email_allowed_domains', 'footer_contact_email', 'brand_name', 'brand_subtitle', 'brand_logo_url', 'hosting_notice']
@@ -402,14 +404,20 @@ const selectedPopupPromoPackage = computed(() => {
 })
 
 // 转移设置保存
-const transferKeys = ['transfer_fee']
+const transferKeys = ['transfer_fee', 'balance_transfer_enabled', 'balance_transfer_fee']
 async function saveTransfer() {
   const fee = Number(form.value.transfer_fee)
   if (!Number.isFinite(fee) || fee < 0 || fee > MAX_TRANSFER_FEE || !hasAtMostTwoDecimalPlaces(fee)) {
     toast.error(t('admin.system.transfer.feeRangeError', { max: MAX_TRANSFER_FEE.toFixed(2) }))
     return
   }
+  const balanceTransferFee = Number(form.value.balance_transfer_fee)
+  if (!Number.isFinite(balanceTransferFee) || balanceTransferFee < 0 || balanceTransferFee > MAX_TRANSFER_FEE || !hasAtMostTwoDecimalPlaces(balanceTransferFee)) {
+    toast.error(t('admin.system.transfer.feeRangeError', { max: MAX_TRANSFER_FEE.toFixed(2) }))
+    return
+  }
   form.value.transfer_fee = Math.round(fee * 100) / 100
+  form.value.balance_transfer_fee = Math.round(balanceTransferFee * 100) / 100
   await saveConfigGroup(transferKeys, savingTransfer)
   await configStore.loadPublicConfig(true)
 }
@@ -1090,26 +1098,80 @@ async function sendTestEmail() {
           </div>
           <p class="text-sm text-themed-muted mb-6">{{ t('admin.system.transfer.description') }}</p>
 
-          <div class="space-y-2">
-            <label class="block text-sm text-themed-secondary">
-              {{ t('admin.system.transfer.feeLabel') }}
-            </label>
-            <div class="relative max-w-xs">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">¥</span>
-              <input
-                v-model.number="form.transfer_fee"
-                type="number"
-                min="0"
-                :max="MAX_TRANSFER_FEE"
-                step="0.01"
-                class="input pl-8 pr-12"
-                placeholder="0.00"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">
-                {{ t('admin.system.transfer.feeUnit') }}
-              </span>
+          <div class="space-y-6">
+            <div class="space-y-2">
+              <label class="block text-sm text-themed-secondary">
+                {{ t('admin.system.transfer.feeLabel') }}
+              </label>
+              <div class="relative max-w-xs">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">¥</span>
+                <input
+                  v-model.number="form.transfer_fee"
+                  type="number"
+                  min="0"
+                  :max="MAX_TRANSFER_FEE"
+                  step="0.01"
+                  class="input pl-8 pr-12"
+                  placeholder="0.00"
+                />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">
+                  {{ t('admin.system.transfer.feeUnit') }}
+                </span>
+              </div>
+              <p class="text-xs text-themed-muted">{{ t('admin.system.transfer.feeDesc') }}</p>
             </div>
-            <p class="text-xs text-themed-muted">{{ t('admin.system.transfer.feeDesc') }}</p>
+
+            <div class="rounded-lg bg-themed-secondary/50 p-4">
+              <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex-1">
+                  <label class="text-sm font-medium text-themed">{{ t('admin.system.transfer.balanceTransferEnable') }}</label>
+                  <p class="mt-1 text-xs text-themed-muted">{{ t('admin.system.transfer.balanceTransferEnableDesc') }}</p>
+                </div>
+                <div class="flex items-center gap-3 sm:ml-4">
+                  <span class="text-xs" :class="form.balance_transfer_enabled ? 'text-themed-muted' : 'text-themed font-medium'">
+                    {{ t('admin.system.transfer.balanceTransferDisabled') }}
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    :aria-checked="form.balance_transfer_enabled"
+                    class="relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2"
+                    :class="form.balance_transfer_enabled ? 'bg-green-500 focus:ring-green-500' : 'bg-gray-400 dark:bg-gray-500 focus:ring-gray-400'"
+                    @click="form.balance_transfer_enabled = !form.balance_transfer_enabled"
+                  >
+                    <span
+                      class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out"
+                      :class="form.balance_transfer_enabled ? 'translate-x-5' : 'translate-x-0'"
+                    />
+                  </button>
+                  <span class="text-xs" :class="form.balance_transfer_enabled ? 'text-themed font-medium' : 'text-themed-muted'">
+                    {{ t('admin.system.transfer.balanceTransferEnabled') }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-2">
+                <label class="block text-sm text-themed-secondary">
+                  {{ t('admin.system.transfer.balanceTransferFeeLabel') }}
+                </label>
+                <div class="relative max-w-xs">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">¥</span>
+                  <input
+                    v-model.number="form.balance_transfer_fee"
+                    type="number"
+                    min="0"
+                    :max="MAX_TRANSFER_FEE"
+                    step="0.01"
+                    class="input pl-8 pr-12"
+                    placeholder="0.00"
+                  />
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-themed-muted">
+                    {{ t('admin.system.transfer.balanceTransferFeeUnit') }}
+                  </span>
+                </div>
+                <p class="text-xs text-themed-muted">{{ t('admin.system.transfer.balanceTransferFeeDesc') }}</p>
+              </div>
+            </div>
           </div>
         </div>
 

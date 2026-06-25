@@ -3,10 +3,25 @@
  * 提升二次加载速度，支持离线访问静态资源
  */
 
-const CACHE_NAME = 'incudal-cache-v2'
+const CACHE_NAME = 'incudal-cache-v3'
 
 // 需要缓存的静态资源类型
 const CACHEABLE_EXTENSIONS = ['.js', '.css', '.woff', '.woff2', '.ttf', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico']
+
+// 缓存条目上限：Vite 每次构建生成新哈希文件名，旧文件如不清理会无限堆积
+const MAX_CACHE_ENTRIES = 60
+
+/**
+ * 缓存条目超出上限时删除最早的条目（FIFO）
+ * 在每次写入缓存后调用，防止旧版本静态资源无限堆积
+ */
+async function trimCache(cache) {
+  const keys = await cache.keys()
+  if (keys.length > MAX_CACHE_ENTRIES) {
+    const toDelete = keys.slice(0, keys.length - MAX_CACHE_ENTRIES)
+    await Promise.all(toDelete.map(key => cache.delete(key)))
+  }
+}
 
 // 需要始终从网络获取的路径（不缓存）
 const NETWORK_ONLY_PATTERNS = [
@@ -92,6 +107,7 @@ self.addEventListener('fetch', (event) => {
                 if (networkResponse && networkResponse.status === 200) {
                   return caches.open(CACHE_NAME).then(cache => {
                     cache.put(event.request, networkResponse.clone())
+                    return trimCache(cache)
                   })
                 }
               })
@@ -109,6 +125,7 @@ self.addEventListener('fetch', (event) => {
             event.waitUntil(
               caches.open(CACHE_NAME).then(cache => {
                 cache.put(event.request, responseToCache)
+                return trimCache(cache)
               })
             )
           }

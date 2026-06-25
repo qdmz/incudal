@@ -2,9 +2,14 @@
 /**
  * 虚拟滚动列表组件
  * 用于高效渲染大量数据，只渲染可见区域的项目
- * 
+ *
  * 使用示例：
- * <VirtualList :items="items" :item-height="60" v-slot="{ item }">
+ * <VirtualList :items="items" :item-height="60" height="400px" v-slot="{ item }">
+ *   <div>{{ item.name }}</div>
+ * </VirtualList>
+ *
+ * 也可通过 keyField 指定唯一键字段：
+ * <VirtualList :items="items" :item-height="60" key-field="id" v-slot="{ item }">
  *   <div>{{ item.name }}</div>
  * </VirtualList>
  */
@@ -15,11 +20,15 @@ interface Props {
   itemHeight: number  // 每项固定高度
   bufferSize?: number // 缓冲区大小（上下各渲染多少额外项）
   containerClass?: string
+  height?: string     // 容器高度（如 '400px' 或 '60vh'），不设则需外部控制
+  keyField?: string   // 自定义唯一键字段名，默认使用 index
 }
 
 const props = withDefaults(defineProps<Props>(), {
   bufferSize: 5,
-  containerClass: ''
+  containerClass: '',
+  height: '',
+  keyField: ''
 })
 
 const containerRef = ref<HTMLElement | null>(null)
@@ -115,12 +124,13 @@ defineExpose({
     ref="containerRef"
     class="overflow-auto"
     :class="containerClass"
+    :style="height ? { height } : undefined"
     @scroll="handleScroll"
   >
     <div :style="spacerStyle">
       <div
         v-for="{ item, index, style } in visibleItems"
-        :key="index"
+        :key="keyField ? (item[keyField] ?? index) : index"
         :style="style"
       >
         <slot :item="item" :index="index" />

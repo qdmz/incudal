@@ -682,6 +682,7 @@ model Host {
   pveRealm        String?  @map("pve_realm")         // PVE 认证域 (如 "pam")
   pveOtp          String?  @map("pve_otp")           // PVE 2FA OTP (可选)
   pveSshPort      Int?     @map("pve_ssh_port")      // PVE SSH 端口 (用于 NAT 规则操作)
+  pveSshPassword  String?  @map("pve_ssh_password")  // PVE SSH 密码 (与 API Token 分开)
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   instances    Instance[]

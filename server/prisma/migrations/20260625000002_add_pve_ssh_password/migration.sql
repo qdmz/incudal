@@ -1,0 +1,1 @@
+ALTER TABLE "hosts" ADD COLUMN "pve_ssh_password" TEXT;

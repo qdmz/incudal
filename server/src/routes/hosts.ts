@@ -627,6 +627,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       pvePassword?: string
       pveRealm?: string
       pveSshPort?: number
+      pveSshPassword?: string
+
     }
   }>('/', {
     onRequest: [fastify.authenticate],
@@ -672,7 +674,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           pveUsername: { type: 'string' },
           pvePassword: { type: 'string' },
           pveRealm: { type: 'string' },
-          pveSshPort: { type: 'integer' }
+          pveSshPort: { type: 'integer' },
+          pveSshPassword: { type: 'string' }
         }
       }
     }
@@ -700,13 +703,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       pvePassword?: string
       pveRealm?: string
       pveSshPort?: number
+      pveSshPassword?: string
     }
   }>, reply: FastifyReply) => {
     const {
       name, url, location, countryCode, tags, certPath, keyPath, natConfig,
       ipAddress, storageDriver, storageType, storagePath, storageSize, ipv6Mode, ipv6Subnet, ipv6Gateway, ipv6ParentInterface,
       cpuAllowanceMax, memoryMax, instanceType,
-      nodeType, pveNodeName, pveStorageName, pveBridgeName, pveUsername, pvePassword, pveRealm, pveSshPort
+      nodeType, pveNodeName, pveStorageName, pveBridgeName, pveUsername, pvePassword, pveRealm, pveSshPort, pveSshPassword
     } = request.body
 
     // Validate input (prevent dangerous character injection)
@@ -922,6 +926,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
             pvePassword: pvePassword || null,
             pveRealm: pveRealm || null,
             pveSshPort: pveSshPort || null,
+            pveSshPassword: pveSshPassword || null,
           }, tx)
 
           if (request.user.role !== 'admin') {
@@ -1810,6 +1815,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         pveUsername: host.pve_username || null,
         pveRealm: host.pve_realm || null,
         pveSshPort: host.pve_ssh_port || null,
+        pveSshPassword: host.pve_ssh_password || null,
         instances: instances.map((i: unknown) => {
           const instance = i as { id: number; name: string; status: string }
           return {
@@ -1981,6 +1987,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       pvePassword?: string
       pveRealm?: string
       pveSshPort?: number
+      pveSshPassword?: string
     }
   }>('/:id', {
     onRequest: [fastify.authenticate],
@@ -2015,7 +2022,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           pveUsername: { type: 'string' },
           pvePassword: { type: 'string' },
           pveRealm: { type: 'string' },
-          pveSshPort: { type: 'integer' }
+          pveSshPort: { type: 'integer' },
+          pveSshPassword: { type: 'string' }
         }
       }
     }
@@ -2045,6 +2053,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       pvePassword?: string
       pveRealm?: string
       pveSshPort?: number
+      pveSshPassword?: string
     }
   }>, reply: FastifyReply) => {
     const { id } = request.params
@@ -2244,7 +2253,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
               pveUsername: updates.pveUsername,
               pvePassword: updates.pvePassword,
               pveRealm: updates.pveRealm,
-              pveSshPort: updates.pveSshPort
+              pveSshPort: updates.pveSshPort,
+              pveSshPassword: updates.pveSshPassword
             }, tx)
 
             if (updates.cpuAllowanceMax !== undefined || updates.memoryMax !== undefined || updates.instanceType !== undefined) {
@@ -2330,7 +2340,8 @@ export default async function hostRoutes(fastify: FastifyInstance) {
             pveUsername: updates.pveUsername,
             pvePassword: updates.pvePassword,
             pveRealm: updates.pveRealm,
-            pveSshPort: updates.pveSshPort
+            pveSshPort: updates.pveSshPort,
+              pveSshPassword: updates.pveSshPassword
           }, tx)
 
           if (updates.cpuAllowanceMax !== undefined || updates.memoryMax !== undefined || updates.instanceType !== undefined) {

@@ -58,6 +58,7 @@ const form = ref({
   pvePassword: '',
   pveRealm: 'pam',
   pveSshPort: 22,
+  pveSshPassword: '',
 })
 
 const showCountryDropdown = ref(false)
@@ -269,6 +270,7 @@ async function createHost() {
       formData.pvePassword = form.value.pvePassword || undefined
       formData.pveRealm = form.value.pveRealm || undefined
       formData.pveSshPort = form.value.pveSshPort || undefined
+      formData.pveSshPassword = form.value.pveSshPassword || undefined
     }
 
     const response = await api.hosts.create(formData)
@@ -533,6 +535,10 @@ function closeAndGoBack() {
                   <div>
                     <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveSshPort') }}</label>
                     <input v-model.number="form.pveSshPort" type="number" class="input" placeholder="22" min="1" max="65535" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveSshPassword') }}</label>
+                    <input v-model="form.pveSshPassword" type="password" class="input" placeholder="root SSH 密码（NAT端口映射需要）" />
                   </div>
                 </div>
                 <div class="mt-4 p-3 rounded-lg border" :class="themeStore.isDark ? 'bg-amber-900/20 border-amber-800 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'">

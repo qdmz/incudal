@@ -863,6 +863,7 @@ export interface CreateHostRequest {
   pvePassword?: string
   pveRealm?: string
   pveSshPort?: number
+  pveSshPassword?: string
 }
 
 export interface UpdateHostRequest {
@@ -884,6 +885,7 @@ export interface UpdateHostRequest {
   pvePassword?: string
   pveRealm?: string
   pveSshPort?: number
+  pveSshPassword?: string
   ipv6ParentInterface?: string
   ipv6Subnet?: string
   transferEnabled?: boolean

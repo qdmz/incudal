@@ -126,6 +126,7 @@ export interface Host {
   pve_password?: string | null
   pve_realm?: string | null
   pve_ssh_port?: number | null
+  pve_ssh_password?: string | null
   created_at: string
   updated_at: string
 }

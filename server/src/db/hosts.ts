@@ -131,6 +131,7 @@ export async function getHostById(id: number): Promise<Host | null> {
     pve_password: host.pvePassword,
     pve_realm: host.pveRealm,
     pve_ssh_port: host.pveSshPort,
+    pve_ssh_password: host.pveSshPassword,
     created_at: host.createdAt.toISOString(),
     updated_at: host.updatedAt.toISOString()
   }
@@ -270,6 +271,7 @@ export async function createHost(data: {
   pvePassword?: string | null
   pveRealm?: string | null
   pveSshPort?: number | null
+  pveSshPassword?: string | null
 }, client: DbClient = prisma): Promise<number> {
   const createData: any = {
     userId: data.userId,
@@ -314,6 +316,7 @@ export async function createHost(data: {
     pvePassword: data.pvePassword ?? null,
     pveRealm: data.pveRealm ?? null,
     pveSshPort: data.pveSshPort ?? null,
+    pveSshPassword: data.pveSshPassword ?? null,
     status: 'offline'
   }
 
@@ -355,6 +358,7 @@ export async function updateHost(id: number, data: {
   pvePassword?: string | null
   pveRealm?: string | null
   pveSshPort?: number | null
+  pveSshPassword?: string | null
 }, client: DbClient = prisma): Promise<void> {
   const updateData: {
     name?: string
@@ -384,6 +388,7 @@ export async function updateHost(id: number, data: {
     pvePassword?: string | null
     pveRealm?: string | null
     pveSshPort?: number | null
+    pveSshPassword?: string | null
   } = {}
 
   if (data.name !== undefined) updateData.name = data.name
@@ -413,6 +418,7 @@ export async function updateHost(id: number, data: {
   if (data.pvePassword !== undefined) updateData.pvePassword = data.pvePassword ?? null
   if (data.pveRealm !== undefined) updateData.pveRealm = data.pveRealm ?? null
   if (data.pveSshPort !== undefined) updateData.pveSshPort = data.pveSshPort ?? null
+  if (data.pveSshPassword !== undefined) updateData.pveSshPassword = data.pveSshPassword ?? null
 
   if (Object.keys(updateData).length === 0) return
 

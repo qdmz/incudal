@@ -5,8 +5,8 @@ function getSshConfig(host: Host) {
   return {
     host: host.url.replace(/^https?:\/\//, '').split(':')[0],
     port: host.pve_ssh_port || 22,
-    username: host.pve_username?.split('@')[0] || 'root',
-    password: host.pve_password || '',
+    username: 'root',
+    password: host.pve_ssh_password || '',
   }
 }
 

@@ -42,12 +42,12 @@ export async function createPveInstanceAsync(
         storage,
         net0: `virtio,bridge=${bridge}`,
         boot: 'order=scsi0',
-        scsi0: `${storage}:vm-${vmid}-disk-0,size=${config.disk}M`,
+        scsi0: `${storage}:${vmid}/disk-0,size=${config.disk}M`,
         onboot: 1,
         agent: 1,
-        ...(config.image ? { ide2: `${storage}:iso/${config.image},media=cdrom` } : {}),
+        ...(config.image ? { ide2: config.image, cdrom: 1 } : {}),
         ...(config.password ? { cipassword: config.password } : {}),
-        ...(config.sshKey ? { sshkeys: config.sshKey } : {}),
+        ...(config.sshKey ? { 'ssh-public-keys': config.sshKey } : {}),
       })
       if (upid) await pveClient.waitForTask(upid)
       console.log(`[PVE Provisioning] QEMU VM ${vmid} 创建完成`)
@@ -58,14 +58,14 @@ export async function createPveInstanceAsync(
         cores: config.cpu,
         memory: config.memory,
         storage,
-        rootfs: `${storage}:vm-${vmid}-disk-0,size=${config.disk}M`,
+        rootfs: `${storage}:${vmid},size=${config.disk}M`,
         net0: `name=eth0,bridge=${bridge},ip=dhcp`,
         unprivileged: 1,
         onboot: 1,
         start: 1,
         ...(config.image ? { ostemplate: config.image } : {}),
         ...(config.password ? { password: config.password } : {}),
-        ...(config.sshKey ? { sshkeys: config.sshKey } : {}),
+        ...(config.sshKey ? { 'ssh-public-keys': config.sshKey } : {}),
       })
       if (upid) await pveClient.waitForTask(upid)
       console.log(`[PVE Provisioning] LXC 容器 ${vmid} 创建完成`)

@@ -569,7 +569,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         cpuAllowanceMax: host.cpu_allowance_max || 0,
         memoryMax: host.memory_max || 0,
         instanceType: host.instance_type || 'container',
-        nodeType: (host as any).node_type || 'incus',
+        nodeType: (host as any).nodeType || (host as any).node_type || 'incus',
         instanceCount,
         natConfig: {
           publicIp: host.nat_public_ip,

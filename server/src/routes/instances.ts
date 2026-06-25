@@ -808,18 +808,20 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     }
 
     // 5. 验证镜像是否在预设列表中
-    if (!await isValidSystemImage(image)) {
+    const hostForCheck = await db.getHostById(hostId)
+    const isPveNode = hostForCheck?.node_type === 'pve'
+    if (!isPveNode && !await isValidSystemImage(image)) {
       return reply.code(400).send(apiError(ErrorCode.IMAGE_NOT_FOUND))
     }
 
     // 5.1 验证镜像类型与套餐类型的兼容性（安全验证）
     const pkgInstanceType = (pkg as typeof pkg & { instance_type?: 'container' | 'vm' }).instance_type || 'container'
-    if (!await isImageCompatibleWithInstanceType(image, pkgInstanceType)) {
+    if (!isPveNode && !await isImageCompatibleWithInstanceType(image, pkgInstanceType)) {
       return reply.code(400).send(apiError(ErrorCode.IMAGE_TYPE_MISMATCH))
     }
 
     // 5.2 验证镜像与内存配置的兼容性（128MB 只允许 Alpine/Debian）
-    if (!await isImageCompatibleWithMemory(image, requestedMemory)) {
+    if (!isPveNode && !await isImageCompatibleWithMemory(image, requestedMemory)) {
       return reply.code(400).send(apiError(ErrorCode.IMAGE_MEMORY_INCOMPATIBLE))
     }
 
@@ -884,6 +886,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     }
     // 节点是 'both' 时，任何套餐类型都兼容
 
+    if (!isPveNode) {
     const hostImageAvailability = await getSystemImageAvailabilityForHost(imageAlias, preCheckHost.id, {
       instanceType: effectiveInstanceType,
       memory: requestedMemory
@@ -903,6 +906,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         default:
           return reply.code(400).send(apiError(ErrorCode.INSTANCE_IMAGE_UNAVAILABLE))
       }
+    }
     }
 
     // 用户托管节点不允许使用优惠码（托管节点命名前四位固定为 peer）
@@ -3495,6 +3499,13 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           const pveClient = getPveClient(host)
           if (instance.status === 'running') {
             try { await pveClient.stopLxc(instance.pve_vmid) } catch {}
+            for (let i = 0; i < 30; i++) {
+              await new Promise(r => setTimeout(r, 2000))
+              try {
+                const status = await pveClient.getLxcStatus(instance.pve_vmid)
+                if (status === 'stopped') break
+              } catch {}
+            }
           }
           await pveClient.deleteLxc(instance.pve_vmid)
         } catch (pveError) {

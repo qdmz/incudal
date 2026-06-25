@@ -40,10 +40,10 @@ export async function pveRemoveNatRule(
   }
 ): Promise<void> {
   const ssh = getSshConfig(host)
-  const { protocol, publicIp, publicPort } = params
+  const { protocol, publicPort } = params
 
   await sshExec(ssh.host, ssh.port, ssh.username, ssh.password,
-    `iptables -t nat -D PREROUTING -p ${protocol} -d ${publicIp} --dport ${publicPort} -m comment --comment "incudal:${protocol}:${publicPort}" -j DNAT --to-destination 0.0.0.0:0 2>/dev/null; iptables-save > /etc/iptables/rules.v4 2>/dev/null || true`
+    `line=$(iptables -t nat -L PREROUTING -n --line-numbers | grep "incudal:${protocol}:${publicPort}" | head -1 | awk '{print $1}'); if [ -n "$line" ]; then iptables -t nat -D PREROUTING $line; iptables-save > /etc/iptables/rules.v4 2>/dev/null || true; fi`
   )
 }
 
@@ -76,9 +76,9 @@ export async function pveRemoveIpv6NatRule(
   }
 ): Promise<void> {
   const ssh = getSshConfig(host)
-  const { protocol, publicIpv6, publicPort } = params
+  const { protocol, publicPort } = params
 
   await sshExec(ssh.host, ssh.port, ssh.username, ssh.password,
-    `ip6tables -t nat -D PREROUTING -p ${protocol} -d ${publicIpv6} --dport ${publicPort} -m comment --comment "incudal:v6:${protocol}:${publicPort}" -j DNAT --to-destination [::]:0 2>/dev/null; ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true`
+    `line=$(ip6tables -t nat -L PREROUTING -n --line-numbers | grep "incudal:v6:${protocol}:${publicPort}" | head -1 | awk '{print $1}'); if [ -n "$line" ]; then ip6tables -t nat -D PREROUTING $line; ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true; fi`
   )
 }

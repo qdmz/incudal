@@ -25,7 +25,7 @@ import {
 import { resolveRechargeProviderConfigSnapshot } from '../lib/recharge-provider-snapshot.js'
 import { createInboxMessage } from '../db/inbox.js'
 import { getTodayRange, getThisMonthStart, getLastMonthRange } from '../lib/timezone.js'
-import { validateName, encryptSensitiveData } from '../lib/security.js'
+import { validateName, encryptSensitiveData, decryptSensitiveData } from '../lib/security.js'
 import { generateIncusConfig, generateRandomPassword } from '../lib/incus-config-generator.js'
 import { apiError, ErrorCode } from '../lib/errors.js'
 import {
@@ -39,6 +39,7 @@ import { generateRandomIPv4, generateRandomIPv6 } from '../lib/ip-calculator.js'
 import { validateCommandsOwnership, mergeCommandContents, getImageDistroFromAlias } from '../db/custom-init-commands.js'
 import { customAlphabet } from 'nanoid'
 import { buildInstanceConfig, getIncusClient, createInstance, startInstance, getInstanceState } from '../lib/incus/index.js'
+import { createPveInstanceAsync } from './instances/create-pve-async.js'
 import { calculateCreateBilling, getMaxRefundable } from '../db/billing-operations.js'
 import { shouldSyncInstanceSwapSizeWithPlan } from '../lib/instance-swap.js'
 import { resolveInstanceTrafficLimitForHost } from '../lib/traffic-multiplier.js'
@@ -874,9 +875,15 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         try {
           const host = await db.getHostById(instance.hostId)
           if (host) {
-            const { getIncusClient, stopInstance } = await import('../lib/incus/index.js')
-            const client = await getIncusClient(host)
-            await stopInstance(client, instance.incusId)
+            if (host.node_type === 'pve' && instance.pveVmid) {
+              const { getPveClient } = await import('../lib/pve/index.js')
+              const pveClient = getPveClient(host)
+              await pveClient.stopLxc(instance.pveVmid)
+            } else {
+              const { getIncusClient, stopInstance } = await import('../lib/incus/index.js')
+              const client = await getIncusClient(host)
+              await stopInstance(client, instance.incusId)
+            }
           }
         } catch (err) {
           request.log.warn(err, '停止实例失败')
@@ -1405,18 +1412,33 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         request.log.warn(cleanupErr, '清理关联数据失败')
       }
 
-      // 4.4 从 Incus 删除实例（databaseOnly 模式下跳过）
+      // 4.4 删除实例（databaseOnly 模式下跳过）
       if (!databaseOnly) {
         try {
           const host = await db.getHostById(instance.hostId)
           if (host) {
-            const { getIncusClient, deleteInstance } = await import('../lib/incus/index.js')
-            const client = await getIncusClient(host)
-            await deleteInstance(client, instance.incusId)
+            if (host.node_type === 'pve' && instance.pveVmid) {
+              const { getPveClient } = await import('../lib/pve/index.js')
+              const pveClient = getPveClient(host)
+              if (instance.status === 'running') {
+                try { await pveClient.stopLxc(instance.pveVmid) } catch {}
+                for (let i = 0; i < 30; i++) {
+                  await new Promise(r => setTimeout(r, 2000))
+                  try {
+                    const status = await pveClient.getLxcStatus(instance.pveVmid)
+                    if (status === 'stopped') break
+                  } catch {}
+                }
+              }
+              await pveClient.deleteLxc(instance.pveVmid)
+            } else {
+              const { getIncusClient, deleteInstance } = await import('../lib/incus/index.js')
+              const client = await getIncusClient(host)
+              await deleteInstance(client, instance.incusId)
+            }
           }
         } catch (incusErr) {
-          request.log.error(incusErr, 'Incus 删除实例失败')
-          // 继续执行，即使 Incus 删除失败也要更新数据库状态
+          request.log.error(incusErr, '删除实例失败')
         }
       }
 
@@ -2782,18 +2804,22 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       const requestedMemory = selectedPlan ? selectedPlan.memory : (memory || 128)
       const requestedDisk = selectedPlan ? selectedPlan.disk : (disk || 512)
 
+      // 7.1 获取宿主机信息
+      const hostForCheck = await db.getHostById(hostId)
+      const isPveNode = hostForCheck?.node_type === 'pve'
+
       // 8. 验证镜像
-      if (!await isValidSystemImage(image)) {
+      if (!isPveNode && !await isValidSystemImage(image)) {
         return reply.status(400).send({ error: '镜像不存在' })
       }
 
       const pkgInstanceType = (pkg as typeof pkg & { instance_type?: 'container' | 'vm' }).instance_type || 'container'
-      if (!await isImageCompatibleWithInstanceType(image, pkgInstanceType)) {
+      if (!isPveNode && !await isImageCompatibleWithInstanceType(image, pkgInstanceType)) {
         return reply.status(400).send({ error: '镜像类型与套餐类型不兼容' })
       }
 
       // 8.1 验证镜像与内存配置的兼容性（128MB 只允许 Alpine/Debian）
-      if (!await isImageCompatibleWithMemory(image, requestedMemory)) {
+      if (!isPveNode && !await isImageCompatibleWithMemory(image, requestedMemory)) {
         return reply.status(400).send({ error: '128MB内存只能使用 Alpine/Debian 镜像' })
       }
 
@@ -2826,24 +2852,27 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         return reply.status(400).send({ error: '套餐要求容器，但节点只支持虚拟机' })
       }
 
-      const hostImageAvailability = await getSystemImageAvailabilityForHost(image, preCheckHost.id, {
-        instanceType: effectiveInstanceType,
-        memory: requestedMemory
-      })
-      if (!hostImageAvailability.ok) {
-        switch (hostImageAvailability.reason) {
-          case 'host_not_found':
-            return reply.status(404).send({ error: '宿主机不存在' })
-          case 'image_not_found':
-            return reply.status(400).send({ error: '镜像不存在' })
-          case 'memory_incompatible':
-            return reply.status(400).send({ error: '128MB内存只能使用 Alpine/Debian 镜像' })
-          case 'instance_type_mismatch':
-            return reply.status(400).send({ error: '镜像类型与套餐类型不兼容' })
-          case 'host_instance_type_mismatch':
-            return reply.status(400).send({ error: '套餐类型与宿主机不兼容' })
-          default:
-            return reply.status(400).send({ error: '选择的镜像在当前节点不可用' })
+      // PVE 节点跳过系统镜像可用性检查
+      if (!isPveNode) {
+        const hostImageAvailability = await getSystemImageAvailabilityForHost(image, preCheckHost.id, {
+          instanceType: effectiveInstanceType,
+          memory: requestedMemory
+        })
+        if (!hostImageAvailability.ok) {
+          switch (hostImageAvailability.reason) {
+            case 'host_not_found':
+              return reply.status(404).send({ error: '宿主机不存在' })
+            case 'image_not_found':
+              return reply.status(400).send({ error: '镜像不存在' })
+            case 'memory_incompatible':
+              return reply.status(400).send({ error: '128MB内存只能使用 Alpine/Debian 镜像' })
+            case 'instance_type_mismatch':
+              return reply.status(400).send({ error: '镜像类型与套餐类型不兼容' })
+            case 'host_instance_type_mismatch':
+              return reply.status(400).send({ error: '套餐类型与宿主机不兼容' })
+            default:
+              return reply.status(400).send({ error: '选择的镜像在当前节点不可用' })
+          }
         }
       }
 
@@ -3082,7 +3111,26 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         throw new Error('Host should not be null after successful transaction')
       }
 
-      // 16. 分配 IP
+      // 16. PVE 节点：跳过 Incus 特有步骤，直接创建
+      const isPveHost = (host as any).node_type === 'pve'
+
+      if (isPveHost) {
+        console.log(`[Admin Create Instance] PVE 节点，跳过 IP 分配和 cloud-init`)
+
+        createInstanceAsync(instanceId, host, {
+          name: incusId,
+          image,
+          cpu: requestedCpu,
+          memory: requestedMemory,
+          disk: requestedDisk,
+          networkMode,
+          instanceType: effectiveInstanceType,
+          portLimit: pkgWithExtras.port_limit || 20,
+        }, targetUser.id, { cpu: requestedCpu, memory: requestedMemory, disk: requestedDisk }).catch(err => {
+          console.error(`[Admin Create Instance] PVE 实例 ${instanceId} 创建失败:`, err)
+        })
+      } else {
+      // 16.1 分配 IP（仅 Incus 节点）
       let staticIPv4: string | null = null
       let staticIPv6: string | null = null
 
@@ -3239,6 +3287,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       }, targetUser.id, { cpu: requestedCpu, memory: requestedMemory, disk: requestedDisk }).catch(err => {
         console.error(`[Admin Create Instance] 实例 ${instanceId} 创建失败:`, err)
       })
+      } // end of else (Incus node)
 
       // 19. 记录操作日志
       const logDetail = selectedPlan
@@ -3764,6 +3813,24 @@ async function createInstanceAsync(
   try {
     console.log(`\n[Admin Provisioning] ===== 开始创建实例流程 =====`)
     console.log(`[Admin Provisioning] 实例ID: ${instanceId}, 名称: ${config.name}, 宿主机: ${host.name}`)
+
+    if (host.node_type === 'pve') {
+      console.log(`[Admin Provisioning] PVE 节点，使用 PVE 创建流程`)
+      const instance = await db.getInstanceById(instanceId)
+      const rootPwd = (instance?.root_password ? decryptSensitiveData(instance.root_password) : generateRandomPassword(16)) ?? 'incudal'
+      await createPveInstanceAsync(instanceId, host, {
+        name: config.name,
+        image: config.image,
+        cpu: config.cpu,
+        memory: config.memory,
+        disk: config.disk,
+        instanceType: config.instanceType,
+        storageName: host.pve_storage_name || undefined,
+        bridgeName: host.pve_bridge_name || undefined,
+        password: rootPwd,
+      }, _userId, _resources)
+      return
+    }
 
     const client = await getIncusClient(host)
 

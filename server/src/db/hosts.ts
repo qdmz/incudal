@@ -820,6 +820,8 @@ export async function selectAndReserveHostWithLock(
            cpu_allowance_max, memory_max, storage_size,
            ipv6_mode, ipv6_subnet, ipv6_gateway, ipv6_parent_interface,
            instance_type, tags, nat_ports_used_count,
+           node_type, pve_node_name, pve_storage_name, pve_bridge_name,
+           pve_username, pve_password, pve_realm, pve_ssh_port, pve_ssh_password,
            created_at, updated_at
     FROM hosts
     WHERE ${whereConditions.join(' AND ')}
@@ -852,6 +854,15 @@ export async function selectAndReserveHostWithLock(
     instance_type: string
     tags: unknown
     nat_ports_used_count: number
+    node_type: string | null
+    pve_node_name: string | null
+    pve_storage_name: string | null
+    pve_bridge_name: string | null
+    pve_username: string | null
+    pve_password: string | null
+    pve_realm: string | null
+    pve_ssh_port: number | null
+    pve_ssh_password: string | null
     created_at: Date
     updated_at: Date
   }>>(lockQuery, ...params)
@@ -967,7 +978,16 @@ export async function selectAndReserveHostWithLock(
       ipv6_subnet: host.ipv6_subnet,
       ipv6_gateway: host.ipv6_gateway,
       ipv6_parent_interface: host.ipv6_parent_interface,
-      instance_type: host.instance_type as 'container' | 'vm' | 'both'
+      instance_type: host.instance_type as 'container' | 'vm' | 'both',
+      node_type: (host.node_type || 'incus') as 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api',
+      pve_node_name: host.pve_node_name,
+      pve_storage_name: host.pve_storage_name,
+      pve_bridge_name: host.pve_bridge_name,
+      pve_username: host.pve_username,
+      pve_password: host.pve_password,
+      pve_realm: host.pve_realm,
+      pve_ssh_port: host.pve_ssh_port,
+      pve_ssh_password: host.pve_ssh_password
     }
   }
 

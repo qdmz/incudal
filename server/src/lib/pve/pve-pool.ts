@@ -24,13 +24,7 @@ export function getPveClient(host: Host): PveClient {
     clientPool.delete(host.id)
   }
 
-  const client = new PveClient({
-    url: host.url,
-    username: host.pve_username || 'root@pam',
-    password: host.pve_password || '',
-    realm: host.pve_realm || 'pam',
-    nodeName: host.pve_node_name || 'pve',
-  })
+  const client = PveClient.fromHost(host)
 
   clientPool.set(host.id, { client, lastUsed: now, errorCount: 0 })
   return client

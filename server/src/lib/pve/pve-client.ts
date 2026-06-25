@@ -7,6 +7,7 @@ interface PveApiOptions {
   realm?: string
   otp?: string
   nodeName: string
+  apiToken?: string
 }
 
 interface PveApiToken {
@@ -23,6 +24,7 @@ export class PveClient {
   private realm: string
   private otp: string | null
   private _nodeName: string
+  private apiToken: string | null
   private token: PveApiToken | null = null
 
   constructor(options: PveApiOptions) {
@@ -32,20 +34,24 @@ export class PveClient {
     this.realm = options.realm || 'pam'
     this.otp = options.otp || null
     this._nodeName = options.nodeName
+    this.apiToken = options.apiToken || null
   }
 
   static fromHost(host: Host): PveClient {
+    const username = host.pve_username || 'root@pam'
+    const isTokenAuth = username.includes('!')
     return new PveClient({
       url: host.url,
-      username: host.pve_username || 'root@pam',
-      password: host.pve_password || '',
-      realm: host.pve_realm || 'pam',
-
+      username: isTokenAuth ? username.split('!')[0] : username,
+      password: isTokenAuth ? '' : (host.pve_password || ''),
+      realm: isTokenAuth ? (username.split('!')[0].split('@')[1] || 'pam') : (host.pve_realm || 'pam'),
       nodeName: host.pve_node_name || 'pve',
+      apiToken: isTokenAuth ? `${username}=${host.pve_password || ''}` : undefined,
     })
   }
 
   private async ensureToken(): Promise<void> {
+    if (this.apiToken) return
     if (this.token && Date.now() < this.token.expiry - 60000) return
 
     const body: Record<string, string> = {
@@ -82,11 +88,17 @@ export class PveClient {
   }
 
   async request<T = any>(method: string, path: string, body?: any): Promise<T> {
-    await this.ensureToken()
+    if (!this.apiToken) {
+      await this.ensureToken()
+    }
 
-    const headers: Record<string, string> = {
-      'Cookie': `PVEAuthCookie=${this.token!.ticket}`,
-      'CSRFPreventionToken': this.token!.csrfPreventionToken,
+    const headers: Record<string, string> = {}
+
+    if (this.apiToken) {
+      headers['Authorization'] = `PVEAPIToken=${this.apiToken}`
+    } else {
+      headers['Cookie'] = `PVEAuthCookie=${this.token!.ticket}`
+      headers['CSRFPreventionToken'] = this.token!.csrfPreventionToken
     }
 
     let requestBody: string | undefined

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
@@ -64,6 +64,14 @@ const showCountryDropdown = ref(false)
 const countrySearch = ref('')
 const countryDropdownRef = ref<HTMLElement | null>(null)
 onClickOutside(countryDropdownRef, () => closeCountryDropdown())
+
+watch(() => form.value.nodeType, (newType) => {
+  if (newType === 'pve' && form.value.apiPort === 8443) {
+    form.value.apiPort = 8006
+  } else if (newType === 'incus' && form.value.apiPort === 8006) {
+    form.value.apiPort = 8443
+  }
+})
 
 const countries = computed(() => {
   return availableFlagCountryCodes
@@ -514,16 +522,13 @@ function closeAndGoBack() {
                     <input v-model="form.pveBridgeName" type="text" class="input" placeholder="vmbr0" />
                   </div>
                   <div>
-                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveRealm') }}</label>
-                    <input v-model="form.pveRealm" type="text" class="input" placeholder="pam" />
-                  </div>
-                  <div>
+
                     <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveUsername') }}</label>
-                    <input v-model="form.pveUsername" type="text" class="input" placeholder="root@pam" />
+                    <input v-model="form.pveUsername" type="text" class="input" placeholder="root@pam 或 root@pam!tokenid" />
                   </div>
                   <div>
                     <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pvePassword') }}</label>
-                    <input v-model="form.pvePassword" type="password" class="input" placeholder="••••••••" />
+                    <input v-model="form.pvePassword" type="password" class="input" placeholder="密码或 API Token Secret" />
                   </div>
                   <div>
                     <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveSshPort') }}</label>

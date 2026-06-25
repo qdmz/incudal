@@ -807,7 +807,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
 
 
     // 判断是否需要初始化：如果没有提供证书路径，则需要运行安装脚本
-    const needsInitialization = !certPath || !keyPath
+    const needsInitialization = nodeType !== 'pve' && (!certPath || !keyPath)
 
     // 验证资源上限配置（如果提供）
     if (cpuAllowanceMax !== undefined && cpuAllowanceMax < 0) {

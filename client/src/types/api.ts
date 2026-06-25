@@ -853,6 +853,16 @@ export interface CreateHostRequest {
   ipv6Subnet?: string
   ipv6Gateway?: string
   ipv6ParentInterface?: string
+  // 节点类型
+  nodeType?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api'
+  // PVE 专用配置
+  pveNodeName?: string
+  pveStorageName?: string
+  pveBridgeName?: string
+  pveUsername?: string
+  pvePassword?: string
+  pveRealm?: string
+  pveSshPort?: number
 }
 
 export interface UpdateHostRequest {
@@ -866,6 +876,14 @@ export interface UpdateHostRequest {
   cpuAllowanceMax?: number
   memoryMax?: number
   instanceType?: 'container' | 'vm' | 'both'
+  nodeType?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api'
+  pveNodeName?: string
+  pveStorageName?: string
+  pveBridgeName?: string
+  pveUsername?: string
+  pvePassword?: string
+  pveRealm?: string
+  pveSshPort?: number
   ipv6ParentInterface?: string
   ipv6Subnet?: string
   transferEnabled?: boolean

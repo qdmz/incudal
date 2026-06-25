@@ -19,6 +19,7 @@ import { createInstanceTask, getActiveTaskForInstance } from '../db/instance-tas
 import { getSSHKeyById, getSSHKeysByUserId } from '../db/ssh-keys.js'
 import { getEnabledCommandsByDistro, validateCommandsOwnership } from '../db/custom-init-commands.js'
 import { IncusClient, getIncusClient, removeIncusClient } from '../lib/incus/index.js'
+import { PveClient } from '../lib/pve/index.js'
 import { listStoragePools, getStoragePoolResources, createStoragePool, deleteStoragePool, updateStoragePool } from '../lib/incus/incus-storage.js'
 import type { CreateHostRequest, UpdateHostRequest } from '../types/api.js'
 import type { Host } from '../types/database.js'
@@ -568,6 +569,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         cpuAllowanceMax: host.cpu_allowance_max || 0,
         memoryMax: host.memory_max || 0,
         instanceType: host.instance_type || 'container',
+        nodeType: (host as any).node_type || 'incus',
         instanceCount,
         natConfig: {
           publicIp: host.nat_public_ip,
@@ -617,6 +619,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       cpuAllowanceMax?: number
       memoryMax?: number
       instanceType?: 'container' | 'vm' | 'both'
+      nodeType?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api'
+      pveNodeName?: string
+      pveStorageName?: string
+      pveBridgeName?: string
+      pveUsername?: string
+      pvePassword?: string
+      pveRealm?: string
+      pveSshPort?: number
     }
   }>('/', {
     onRequest: [fastify.authenticate],
@@ -654,7 +664,15 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           ipv6ParentInterface: { type: 'string' },
           cpuAllowanceMax: { type: 'integer' },
           memoryMax: { type: 'integer' },
-          instanceType: { type: 'string', enum: ['container', 'vm', 'both'] }
+          instanceType: { type: 'string', enum: ['container', 'vm', 'both'] },
+          nodeType: { type: 'string', enum: ['incus', 'pve', 'lxd', 'kvm', 'external_api'] },
+          pveNodeName: { type: 'string' },
+          pveStorageName: { type: 'string' },
+          pveBridgeName: { type: 'string' },
+          pveUsername: { type: 'string' },
+          pvePassword: { type: 'string' },
+          pveRealm: { type: 'string' },
+          pveSshPort: { type: 'integer' }
         }
       }
     }
@@ -674,12 +692,21 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       cpuAllowanceMax?: number
       memoryMax?: number
       instanceType?: 'container' | 'vm' | 'both'
+      nodeType?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api'
+      pveNodeName?: string
+      pveStorageName?: string
+      pveBridgeName?: string
+      pveUsername?: string
+      pvePassword?: string
+      pveRealm?: string
+      pveSshPort?: number
     }
   }>, reply: FastifyReply) => {
     const {
       name, url, location, countryCode, tags, certPath, keyPath, natConfig,
       ipAddress, storageDriver, storageType, storagePath, storageSize, ipv6Mode, ipv6Subnet, ipv6Gateway, ipv6ParentInterface,
-      cpuAllowanceMax, memoryMax, instanceType
+      cpuAllowanceMax, memoryMax, instanceType,
+      nodeType, pveNodeName, pveStorageName, pveBridgeName, pveUsername, pvePassword, pveRealm, pveSshPort
     } = request.body
 
     // Validate input (prevent dangerous character injection)
@@ -886,7 +913,15 @@ export default async function hostRoutes(fastify: FastifyInstance) {
             certDownloadExpire: certDownloadExpire,  // 证书下载有效期 15 分钟
             cpuAllowanceMax: cpuAllowanceMax,
             memoryMax: memoryMax,
-            instanceType: instanceType
+            instanceType: instanceType,
+            nodeType: nodeType || 'incus',
+            pveNodeName: pveNodeName || null,
+            pveStorageName: pveStorageName || null,
+            pveBridgeName: pveBridgeName || null,
+            pveUsername: pveUsername || null,
+            pvePassword: pvePassword || null,
+            pveRealm: pveRealm || null,
+            pveSshPort: pveSshPort || null,
           }, tx)
 
           if (request.user.role !== 'admin') {
@@ -917,7 +952,40 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     let resourceInfo: { cpuTotal: number; memoryTotalGB: number; diskTotalGB: number } | null = null
     let detectedArchitecture: 'x86_64' | 'aarch64' = 'x86_64'
 
-    if (!needsInitialization && certPath && keyPath) {
+    const effectiveNodeType = nodeType || 'incus'
+
+    if (effectiveNodeType === 'pve' && pveUsername && pvePassword) {
+      try {
+        const pveClient = new PveClient({
+          url,
+          username: pveUsername,
+          password: pvePassword,
+          realm: pveRealm || 'pam',
+          nodeName: pveNodeName || 'pve',
+        })
+        const testResult = await pveClient.testConnection()
+        if (testResult.success) {
+          const nodeStatus = await pveClient.getNodeStatus()
+          await db.updateHostStatus(hostId, 'online')
+          if (cpuAllowanceMax !== undefined || memoryMax !== undefined || instanceType !== undefined) {
+            await db.updateHostResources(hostId, {
+              cpuAllowanceMax,
+              memoryMax,
+              instanceType,
+            })
+          }
+          autoConnected = true
+          resourceInfo = {
+            cpuTotal: nodeStatus?.cpu || 0,
+            memoryTotalGB: Math.round((nodeStatus?.memory?.total || 0) / 1024 / 1024 / 1024),
+            diskTotalGB: Math.round((nodeStatus?.rootfs?.total || 0) / 1024 / 1024 / 1024),
+          }
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        console.warn(`自动连接PVE节点 ${name} 失败: ${errorMessage}`)
+      }
+    } else if (!needsInitialization && certPath && keyPath) {
       try {
         const client = new IncusClient({
           url,
@@ -1546,8 +1614,32 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       return reply.code(403).send(apiError(ErrorCode.FORBIDDEN))
     }
 
-    if (!host.cert_path || !host.key_path) {
+    if (!host.cert_path && host.node_type !== 'pve') {
       return reply.code(400).send(apiError(ErrorCode.HOST_CERT_NOT_CONFIGURED))
+    }
+
+    // PVE 节点使用 PVE API 测试连接
+    if (host.node_type === 'pve') {
+      try {
+        const pveClient = PveClient.fromHost(host as any)
+        const testResult = await pveClient.testConnection()
+        if (testResult.success) {
+          await db.updateHostStatus(hostId, 'online')
+          return {
+            success: true,
+            message: 'PVE connection successful',
+            serverInfo: { version: testResult.version, nodeType: 'pve' }
+          }
+        } else {
+          return reply.code(400).send({
+            success: false,
+            error: testResult.error || 'PVE connection failed'
+          })
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        return reply.code(400).send({ success: false, error: errorMessage })
+      }
     }
 
     try {
@@ -1711,6 +1803,13 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         enableResourcePool: host.enable_resource_pool !== undefined ? host.enable_resource_pool : true,
         announcement: host.announcement || null,
         probeUrl: host.probe_url || null,
+        nodeType: host.node_type || 'incus',
+        pveNodeName: host.pve_node_name || null,
+        pveStorageName: host.pve_storage_name || null,
+        pveBridgeName: host.pve_bridge_name || null,
+        pveUsername: host.pve_username || null,
+        pveRealm: host.pve_realm || null,
+        pveSshPort: host.pve_ssh_port || null,
         instances: instances.map((i: unknown) => {
           const instance = i as { id: number; name: string; status: string }
           return {
@@ -1874,6 +1973,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       enableResourcePool?: boolean
       announcement?: string | null
       probeUrl?: string | null
+      nodeType?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api'
+      pveNodeName?: string
+      pveStorageName?: string
+      pveBridgeName?: string
+      pveUsername?: string
+      pvePassword?: string
+      pveRealm?: string
+      pveSshPort?: number
     }
   }>('/:id', {
     onRequest: [fastify.authenticate],
@@ -1900,7 +2007,15 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           notifyDestroy: { type: 'boolean' },
           enableResourcePool: { type: 'boolean' },
           announcement: { type: ['string', 'null'], maxLength: 1000 },
-          probeUrl: { type: ['string', 'null'], maxLength: 500 }
+          probeUrl: { type: ['string', 'null'], maxLength: 500 },
+          nodeType: { type: 'string', enum: ['incus', 'pve', 'lxd', 'kvm', 'external_api'] },
+          pveNodeName: { type: 'string' },
+          pveStorageName: { type: 'string' },
+          pveBridgeName: { type: 'string' },
+          pveUsername: { type: 'string' },
+          pvePassword: { type: 'string' },
+          pveRealm: { type: 'string' },
+          pveSshPort: { type: 'integer' }
         }
       }
     }
@@ -1922,6 +2037,14 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       enableResourcePool?: boolean
       announcement?: string | null
       probeUrl?: string | null
+      nodeType?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api'
+      pveNodeName?: string
+      pveStorageName?: string
+      pveBridgeName?: string
+      pveUsername?: string
+      pvePassword?: string
+      pveRealm?: string
+      pveSshPort?: number
     }
   }>, reply: FastifyReply) => {
     const { id } = request.params
@@ -2113,7 +2236,15 @@ export default async function hostRoutes(fastify: FastifyInstance) {
               trafficResetDay: updates.trafficResetDay,
               notifyPurchase: updates.notifyPurchase,
               notifyRenew: updates.notifyRenew,
-              notifyDestroy: updates.notifyDestroy
+              notifyDestroy: updates.notifyDestroy,
+              nodeType: updates.nodeType,
+              pveNodeName: updates.pveNodeName,
+              pveStorageName: updates.pveStorageName,
+              pveBridgeName: updates.pveBridgeName,
+              pveUsername: updates.pveUsername,
+              pvePassword: updates.pvePassword,
+              pveRealm: updates.pveRealm,
+              pveSshPort: updates.pveSshPort
             }, tx)
 
             if (updates.cpuAllowanceMax !== undefined || updates.memoryMax !== undefined || updates.instanceType !== undefined) {
@@ -2191,7 +2322,15 @@ export default async function hostRoutes(fastify: FastifyInstance) {
             trafficResetDay: updates.trafficResetDay,
             notifyPurchase: updates.notifyPurchase,
             notifyRenew: updates.notifyRenew,
-            notifyDestroy: updates.notifyDestroy
+            notifyDestroy: updates.notifyDestroy,
+            nodeType: updates.nodeType,
+            pveNodeName: updates.pveNodeName,
+            pveStorageName: updates.pveStorageName,
+            pveBridgeName: updates.pveBridgeName,
+            pveUsername: updates.pveUsername,
+            pvePassword: updates.pvePassword,
+            pveRealm: updates.pveRealm,
+            pveSshPort: updates.pveSshPort
           }, tx)
 
           if (updates.cpuAllowanceMax !== undefined || updates.memoryMax !== undefined || updates.instanceType !== undefined) {

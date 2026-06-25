@@ -28,6 +28,14 @@ enum HostStatus {
   maintenance
 }
 
+enum NodeType {
+  incus
+  pve
+  lxd
+  kvm
+  external_api
+}
+
 enum HostAddressKind {
   domain
   ipv4
@@ -597,6 +605,7 @@ model Host {
   countryCode         String       @default("us") @map("country_code")
   architecture        String       @default("x86_64")
   status              HostStatus   @default(offline)
+  nodeType            NodeType     @default(incus) @map("node_type")
   certPath            String?      @map("cert_path")
   keyPath             String?      @map("key_path")
   natPublicIp         String?      @map("nat_public_ip")
@@ -663,6 +672,16 @@ model Host {
 
   // 探针地址
   probeUrl String? @map("probe_url") // 节点探针监控地址
+
+  // PVE 专用配置
+  pveNodeName     String?  @map("pve_node_name")     // PVE 节点名 (如 "pve")
+  pveStorageName  String?  @map("pve_storage_name")  // PVE 存储名 (如 "local-lvm")
+  pveBridgeName   String?  @map("pve_bridge_name")   // PVE 网桥名 (如 "vmbr0")
+  pveUsername     String?  @map("pve_username")      // PVE API 用户名 (如 "root@pam")
+  pvePassword     String?  @map("pve_password")      // PVE API 密码 (AES 加密)
+  pveRealm        String?  @map("pve_realm")         // PVE 认证域 (如 "pam")
+  pveOtp          String?  @map("pve_otp")           // PVE 2FA OTP (可选)
+  pveSshPort      Int?     @map("pve_ssh_port")      // PVE SSH 端口 (用于 NAT 规则操作)
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   instances    Instance[]
@@ -912,6 +931,7 @@ model Package {
 model Instance {
   id               Int            @id @default(autoincrement())
   incusId          String         @map("incus_id")
+  pveVmid          Int?           @map("pve_vmid")  // PVE VMID (仅 PVE 节点使用)
   name             String
   userId           Int            @map("user_id")
   hostId           Int            @map("host_id")

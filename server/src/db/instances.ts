@@ -211,6 +211,7 @@ export async function getInstanceById(id: number): Promise<(Instance & {
   return {
     id: inst.id,
     incus_id: inst.incusId,
+    pve_vmid: inst.pveVmid,
     name: inst.name,
     user_id: inst.userId,
     host_id: inst.hostId,

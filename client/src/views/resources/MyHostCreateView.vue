@@ -49,7 +49,15 @@ const form = ref({
   natBindIp: '',
   natBindIpv6: '',
   portRangeStart: 10000 as number | null,
-  portRangeEnd: 65000 as number | null
+  portRangeEnd: 65000 as number | null,
+  nodeType: 'incus' as 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api',
+  pveNodeName: 'pve',
+  pveStorageName: 'local-lvm',
+  pveBridgeName: 'vmbr0',
+  pveUsername: 'root@pam',
+  pvePassword: '',
+  pveRealm: 'pam',
+  pveSshPort: 22,
 })
 
 const showCountryDropdown = ref(false)
@@ -231,6 +239,7 @@ async function createHost() {
       cpuAllowanceMax: form.value.cpuAllowanceMax || undefined,
       memoryMax: form.value.memoryMax || undefined,
       instanceType: form.value.instanceType,
+      nodeType: form.value.nodeType,
       ipv6Mode: modeConfig.ipv6Mode,
       ipv6Subnet: modeConfig.needsIpv6Subnet ? form.value.ipv6Subnet.trim() : undefined,
       ipv6ParentInterface: modeConfig.needsIpv6Subnet ? form.value.ipv6ParentInterface.trim() : undefined,
@@ -242,6 +251,16 @@ async function createHost() {
         portRangeStart: form.value.portRangeStart || undefined,
         portRangeEnd: form.value.portRangeEnd || undefined
       } : undefined
+    }
+
+    if (form.value.nodeType === 'pve') {
+      formData.pveNodeName = form.value.pveNodeName || undefined
+      formData.pveStorageName = form.value.pveStorageName || undefined
+      formData.pveBridgeName = form.value.pveBridgeName || undefined
+      formData.pveUsername = form.value.pveUsername || undefined
+      formData.pvePassword = form.value.pvePassword || undefined
+      formData.pveRealm = form.value.pveRealm || undefined
+      formData.pveSshPort = form.value.pveSshPort || undefined
     }
 
     const response = await api.hosts.create(formData)
@@ -391,6 +410,15 @@ function closeAndGoBack() {
                 </div>
               </div>
 
+              <!-- 节点类型选择 -->
+              <div>
+                <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.nodeTypeLabel') }}</label>
+                <select v-model="form.nodeType" class="input">
+                  <option value="incus">Incus</option>
+                  <option value="pve">Proxmox VE</option>
+                </select>
+              </div>
+
               <!-- 网络模式选择 -->
               <div>
                 <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.networkModeLabel') }}</label>
@@ -467,6 +495,46 @@ function closeAndGoBack() {
                 </div>
               </div>
             </div>
+
+            <!-- PVE 配置（仅 PVE 节点类型显示） -->
+            <Transition name="fade">
+              <div v-if="form.nodeType === 'pve'" class="border-t border-themed pt-6">
+                <h3 class="text-sm font-medium text-themed mb-4">{{ t('admin.hosts.pveConfig') }}</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveNodeName') }}</label>
+                    <input v-model="form.pveNodeName" type="text" class="input" placeholder="pve" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveStorageName') }}</label>
+                    <input v-model="form.pveStorageName" type="text" class="input" placeholder="local-lvm" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveBridgeName') }}</label>
+                    <input v-model="form.pveBridgeName" type="text" class="input" placeholder="vmbr0" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveRealm') }}</label>
+                    <input v-model="form.pveRealm" type="text" class="input" placeholder="pam" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveUsername') }}</label>
+                    <input v-model="form.pveUsername" type="text" class="input" placeholder="root@pam" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pvePassword') }}</label>
+                    <input v-model="form.pvePassword" type="password" class="input" placeholder="••••••••" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-themed-muted mb-1.5">{{ t('admin.hosts.pveSshPort') }}</label>
+                    <input v-model.number="form.pveSshPort" type="number" class="input" placeholder="22" min="1" max="65535" />
+                  </div>
+                </div>
+                <div class="mt-4 p-3 rounded-lg border" :class="themeStore.isDark ? 'bg-amber-900/20 border-amber-800 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'">
+                  <p class="text-xs">{{ t('admin.hosts.pveHint') }}</p>
+                </div>
+              </div>
+            </Transition>
 
 
             <!-- 资源限制 -->

@@ -74,6 +74,7 @@ import {
   buildChangeHostOptions
 } from './instances/helpers.js'
 import { createInstanceAsync } from './instances/create-async.js'
+import { createPveInstanceAsync } from './instances/create-pve-async.js'
 
 function resolveInstanceTargetIpv4FromIncusDevice(
   incusInstance: { devices?: Record<string, Record<string, unknown> | undefined> }
@@ -1483,7 +1484,23 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // 根据 ioLimitMode 选择性传入 IO 限制参数
     const ioMode = pkgConfig.io_limit_mode || 'throughput'
 
-    createInstanceAsync(instanceId, host, {
+    if (host.node_type === 'pve') {
+      createPveInstanceAsync(instanceId, host, {
+        name: incusId,
+        image: actualImageAlias,
+        cpu: requestedCpu,
+        memory: requestedMemory,
+        disk: requestedDisk,
+        instanceType: effectiveInstanceType,
+        storageName: host.pve_storage_name || null,
+        bridgeName: host.pve_bridge_name || null,
+        password: metaData.rootPassword || undefined,
+      }, user.id, { cpu: requestedCpu, memory: requestedMemory, disk: requestedDisk }).catch(err => {
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        fastify.log.error({ err: errorMessage }, `PVE 实例 ${instanceId} 创建失败`)
+      })
+    } else {
+      createInstanceAsync(instanceId, host, {
       name: incusId,
       image: actualImageAlias,
       cpu: requestedCpu,
@@ -1521,9 +1538,10 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       bootAutostartDelay: pkgConfig.boot_autostart_delay,
       bootHostShutdownTimeout: pkgConfig.boot_host_shutdown_timeout
     }, user.id, { cpu: requestedCpu, memory: requestedMemory, disk: requestedDisk }).catch(err => {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      fastify.log.error({ err: errorMessage }, `实例 ${instanceId} 创建失败`)
-    })
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        fastify.log.error({ err: errorMessage }, `实例 ${instanceId} 创建失败`)
+      })
+    }
 
     reply.code(202).send({
       message: 'Instance creating, please refresh later',
@@ -3308,11 +3326,13 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       }
 
       let client = null
-      try {
-        client = await getIncusClient(host)
-      } catch (clientError) {
-        const errorMessage = clientError instanceof Error ? clientError.message : String(clientError)
-        console.error('获取 Incus 客户端失败:', errorMessage)
+      if (host.node_type !== 'pve') {
+        try {
+          client = await getIncusClient(host)
+        } catch (clientError) {
+          const errorMessage = clientError instanceof Error ? clientError.message : String(clientError)
+          console.error('获取 Incus 客户端失败:', errorMessage)
+        }
       }
 
       // ===== 1. 删除反代站点（Caddy 远程 + 数据库）=====
@@ -3455,8 +3475,20 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         console.error('取消转移请求失败:', errorMessage)
       }
 
-      // ===== 6. 停止并删除 Incus 实例 =====
-      if (client) {
+      // ===== 6. 停止并删除实例 =====
+      if (host.node_type === 'pve' && instance.pve_vmid) {
+        try {
+          const { getPveClient } = await import('../lib/pve/index.js')
+          const pveClient = getPveClient(host)
+          if (instance.status === 'running') {
+            try { await pveClient.stopLxc(instance.pve_vmid) } catch {}
+          }
+          await pveClient.deleteLxc(instance.pve_vmid)
+        } catch (pveError) {
+          const errorMessage = pveError instanceof Error ? pveError.message : String(pveError)
+          console.error('PVE 删除实例失败:', errorMessage)
+        }
+      } else if (client) {
         try {
           if (instance.status === 'running') {
             await stopInstance(client, instance.incus_id, true)

@@ -12,6 +12,7 @@
 import { prisma } from '../db/prisma.js'
 import { InstanceTaskType } from '@prisma/client'
 import { getIncusClient, getInstance, updateInstance, deleteInstance, createInstance } from '../lib/incus/index.js'
+import { getPveClient } from '../lib/pve/index.js'
 import {
   startInstance,
   stopInstance,
@@ -434,37 +435,56 @@ async function executeTask(taskId: number): Promise<void> {
     const host = await db.getHostById(task.hostId)
     if (!host) throw new Error('宿主机不存在')
 
-    const clientStartTime = Date.now()
-    const client = await getIncusClient(host)
-    const clientDuration = Date.now() - clientStartTime
+    if (host.node_type === 'pve') {
+      const pveClient = getPveClient(host)
+      const vmid = instance.pve_vmid
+      if (!vmid) throw new Error('PVE 实例缺少 vmid')
 
-    // 记录连接池响应时间
-    updateClientResponseTime(host.id, clientDuration)
+      switch (task.taskType) {
+        case 'start':
+          await executePveStartTask(task, instance, host, pveClient, vmid)
+          break
+        case 'stop':
+          await executePveStopTask(task, instance, host, pveClient, vmid)
+          break
+        case 'restart':
+          await executePveRestartTask(task, instance, host, pveClient, vmid)
+          break
+        default:
+          throw new Error(`PVE 节点暂不支持任务类型: ${task.taskType}`)
+      }
+    } else {
+      const clientStartTime = Date.now()
+      const client = await getIncusClient(host)
+      const clientDuration = Date.now() - clientStartTime
 
-    switch (task.taskType) {
-      case 'start':
-        await executeStartTask(task, instance, host, client)
-        break
-      case 'stop':
-        await executeStopTask(task, instance, host, client)
-        break
-      case 'restart':
-        await executeRestartTask(task, instance, host, client)
-        break
-      case 'rebuild':
-        await executeRebuildTask(task, instance, host, client)
-        break
-      case 'clone':
-        await executeCloneTask(task, instance, host, client)
-        break
-      case 'recreate':
-        await executeRecreateTask(task, instance, host, client)
-        break
-      case 'change_host':
-        await executeChangeHostTask(task, instance, host, client)
-        break
-      default:
-        throw new Error(`未知任务类型: ${task.taskType}`)
+      updateClientResponseTime(host.id, clientDuration)
+
+      switch (task.taskType) {
+        case 'start':
+          await executeStartTask(task, instance, host, client)
+          break
+        case 'stop':
+          await executeStopTask(task, instance, host, client)
+          break
+        case 'restart':
+          await executeRestartTask(task, instance, host, client)
+          break
+        case 'rebuild':
+          await executeRebuildTask(task, instance, host, client)
+          break
+        case 'clone':
+          await executeCloneTask(task, instance, host, client)
+          break
+        case 'recreate':
+          await executeRecreateTask(task, instance, host, client)
+          break
+        case 'change_host':
+          await executeChangeHostTask(task, instance, host, client)
+          break
+        default:
+          throw new Error(`未知任务类型: ${task.taskType}`)
+      }
     }
 
     // 任务完成
@@ -814,6 +834,94 @@ async function executeRestartTask(
   })
 
   await createLog(task.userId, 'instance', 'instance.restart', `Restarted instance "${instance.name}" [host: ${host.name}]`, 'success', { instanceId: task.instanceId })
+}
+
+// ==================== PVE 任务执行函数 ====================
+
+async function executePveStartTask(
+  task: { id: number; userId: number; instanceId: number },
+  instance: { name: string },
+  host: { name: string },
+  pveClient: import('../lib/pve/pve-client.js').PveClient,
+  vmid: number
+): Promise<void> {
+  await updateInstanceTaskProgress(task.id, 'starting')
+
+  const upid = await pveClient.startLxc(vmid)
+  if (upid) await pveClient.waitForTask(upid)
+
+  await db.updateInstanceStatus(task.instanceId, 'running')
+
+  await sendNotification(task.userId, 'instance_started', {
+    instanceName: instance.name,
+    hostName: host.name
+  })
+
+  await createLog(task.userId, 'instance', 'instance.start', `Started PVE instance "${instance.name}" [host: ${host.name}, vmid: ${vmid}]`, 'success', { instanceId: task.instanceId })
+}
+
+async function executePveStopTask(
+  task: { id: number; userId: number; instanceId: number },
+  instance: { name: string },
+  host: { name: string },
+  pveClient: import('../lib/pve/pve-client.js').PveClient,
+  vmid: number
+): Promise<void> {
+  await updateInstanceTaskProgress(task.id, 'stopping')
+
+  const collectResult = await collectTrafficForRunningInstance(task.instanceId)
+  if (!collectResult.success) {
+    console.warn(`[PVE Stop] 实例 ${task.instanceId} 关机前即时采集流量失败: ${collectResult.error}`)
+  }
+
+  const closedSessions = closeInstanceSessions(task.instanceId, 'Instance is stopping')
+  if (closedSessions > 0) {
+    console.log(`[PVE Stop] Closed ${closedSessions} terminal session(s) for instance ${task.instanceId}`)
+  }
+
+  const upid = await pveClient.stopLxc(vmid)
+  if (upid) await pveClient.waitForTask(upid)
+
+  await db.updateInstanceStatus(task.instanceId, 'stopped')
+
+  await sendNotification(task.userId, 'instance_stopped', {
+    instanceName: instance.name,
+    hostName: host.name
+  })
+
+  await createLog(task.userId, 'instance', 'instance.stop', `Stopped PVE instance "${instance.name}" [host: ${host.name}, vmid: ${vmid}]`, 'success', { instanceId: task.instanceId })
+}
+
+async function executePveRestartTask(
+  task: { id: number; userId: number; instanceId: number },
+  instance: { name: string },
+  host: { name: string },
+  pveClient: import('../lib/pve/pve-client.js').PveClient,
+  vmid: number
+): Promise<void> {
+  await updateInstanceTaskProgress(task.id, 'restarting')
+
+  const collectResult = await collectTrafficForRunningInstance(task.instanceId)
+  if (!collectResult.success) {
+    console.warn(`[PVE Restart] 实例 ${task.instanceId} 重启前即时采集流量失败: ${collectResult.error}`)
+  }
+
+  const closedSessions = closeInstanceSessions(task.instanceId, 'Instance is restarting')
+  if (closedSessions > 0) {
+    console.log(`[PVE Restart] Closed ${closedSessions} terminal session(s) for instance ${task.instanceId}`)
+  }
+
+  const upid = await pveClient.rebootLxc(vmid)
+  if (upid) await pveClient.waitForTask(upid)
+
+  await db.updateInstanceStatus(task.instanceId, 'running')
+
+  await sendNotification(task.userId, 'instance_restarted', {
+    instanceName: instance.name,
+    hostName: host.name
+  })
+
+  await createLog(task.userId, 'instance', 'instance.restart', `Restarted PVE instance "${instance.name}" [host: ${host.name}, vmid: ${vmid}]`, 'success', { instanceId: task.instanceId })
 }
 
 /**

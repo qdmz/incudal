@@ -117,6 +117,15 @@ export interface Host {
   announcement?: string | null
   // 探针地址
   probe_url?: string | null
+  // PVE 节点配置
+  node_type?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api'
+  pve_node_name?: string | null
+  pve_storage_name?: string | null
+  pve_bridge_name?: string | null
+  pve_username?: string | null
+  pve_password?: string | null
+  pve_realm?: string | null
+  pve_ssh_port?: number | null
   created_at: string
   updated_at: string
 }
@@ -181,6 +190,7 @@ export type InstanceStatus = 'creating' | 'running' | 'stopped' | 'suspended' | 
 export interface Instance {
   id: number
   incus_id: string
+  pve_vmid?: number | null
   name: string
   user_id: number
   host_id: number

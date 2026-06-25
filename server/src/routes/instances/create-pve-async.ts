@@ -92,7 +92,7 @@ export async function createPveInstanceAsync(
       if (config.password) {
         try {
           const { sshExec } = await import('../../lib/ssh-exec.js')
-          const sshHost = host.url.replace(/^https?:\/\//, '').split(':')[0]
+          const sshHost = host.ip_address || host.url.replace(/^https?:\/\//, '').split(':')[0]
           const sshPort = host.pve_ssh_port || 22
           await sshExec(sshHost, sshPort, 'root', host.pve_ssh_password || '', 
             `pct exec ${vmid} -- bash -c 'sed -i \"s/^#*PermitRootLogin.*/PermitRootLogin yes/\" /etc/ssh/sshd_config && systemctl restart sshd 2>/dev/null || service sshd restart 2>/dev/null || service ssh restart 2>/dev/null || true'`
@@ -146,6 +146,23 @@ export async function createPveInstanceAsync(
       }
     } catch (portErr) {
       console.error(`[PVE Provisioning] SSH 端口映射添加失败:`, portErr instanceof Error ? portErr.message : String(portErr))
+    }
+
+    // 写入 IP 地址记录
+    try {
+      await prisma.ipAddress.create({
+        data: { address: internalIp, type: 'inet4', isPrimary: true, device: 'eth0', instanceId, hostId: host.id }
+      })
+      if (host.ipv6_subnet) {
+        const ipv6Parts = host.ipv6_subnet.replace(/\/\d+$/, '').split(':')
+        const ipv6Addr = `${ipv6Parts.slice(0, 4).join(':')}:${vmid.toString(16).padStart(4, '0')}::1`
+        await prisma.ipAddress.create({
+          data: { address: ipv6Addr, type: 'inet6', isPrimary: true, device: 'eth1', instanceId, hostId: host.id }
+        })
+      }
+      console.log(`[PVE Provisioning] IP 地址记录已写入`)
+    } catch (ipErr) {
+      console.error(`[PVE Provisioning] IP 地址写入失败:`, ipErr instanceof Error ? ipErr.message : String(ipErr))
     }
 
 

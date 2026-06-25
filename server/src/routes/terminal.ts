@@ -305,13 +305,86 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
         }
 
         // 12. 创建终端会话
-        // 获取套餐信息以确定实例类型（提前到 try 外以便 catch 块访问）
         let instanceType: 'vm' | 'container' = 'container'
         try {
             const pkg = instance.package_id ? await db.getPackageById(instance.package_id) : null
             instanceType = (pkg?.instance_type === 'vm') ? 'vm' : 'container'
-        } catch {
-            // 获取套餐失败时默认使用 container
+        } catch {}
+
+        // PVE 节点使用 SSH 终端
+        if (host.node_type === 'pve' && instance.pve_vmid) {
+          try {
+            const { Client } = await import('ssh2')
+            const sshHost = host.ip_address || host.url.replace(/^https?:\/\//, '').split(':')[0]
+            const sshPort = host.pve_ssh_port || 22
+            const sshUser = 'root'
+            const sshPassword = host.pve_ssh_password || ''
+            const vmid = instance.pve_vmid
+
+            const sshClient = new Client()
+
+            sshClient.on('ready', () => {
+              sshClient.shell({ term: 'xterm-256color', cols: 80, rows: 24 }, (shellErr, stream) => {
+                if (shellErr) {
+                  safeSend(socket, JSON.stringify({ type: 'error', code: 'CONNECTION_FAILED', message: 'Failed to open shell' }))
+                  socket.close(4000, 'Connection failed')
+                  sshClient.end()
+                  return
+                }
+
+                socket.on('message', (data: Buffer | string) => {
+                  try {
+                    let msg = typeof data === 'string' ? data : data.toString()
+                    if (msg.startsWith('{') && msg.endsWith('}')) {
+                      const parsed = JSON.parse(msg)
+                      if (parsed.type === 'resize') {
+                        stream.setWindow(Math.max(1, Math.min(200, Number(parsed.rows) || 24)), Math.max(1, Math.min(500, Number(parsed.cols) || 80)), 0, 0)
+                        return
+                      }
+                    }
+                    stream.write(msg)
+                  } catch {}
+                })
+
+                stream.on('data', (data: Buffer) => {
+                  safeSend(socket, data.toString('utf8'))
+                })
+                stream.stderr.on('data', (data: Buffer) => {
+                  safeSend(socket, data.toString('utf8'))
+                })
+                stream.on('close', () => {
+                  sshClient.end()
+                  socket.close()
+                })
+
+                stream.write(`pct enter ${vmid}\n`)
+              })
+            })
+
+            sshClient.on('error', () => {
+              safeSend(socket, JSON.stringify({ type: 'error', code: 'CONNECTION_FAILED', message: 'SSH connection failed' }))
+              socket.close(4000, 'Connection failed')
+            })
+
+            sshClient.on('close', () => {
+              if (socket.readyState === socket.OPEN) socket.close()
+            })
+
+            socket.on('close', () => {
+              sshClient.end()
+            })
+
+            sshClient.connect({ host: sshHost, port: sshPort, username: sshUser, password: sshPassword, readyTimeout: 15000 })
+
+            await createLog(user.id, 'terminal', 'terminal.connect', `Terminal connected | instance: ${instance.name} (#${instanceId}) | host: ${host.name} | type: pve-ssh | ip: ${clientIP}`, 'success', { instanceId })
+
+          } catch (error) {
+            const internalError = error instanceof Error ? error.message : String(error)
+            console.error(`[Terminal] PVE SSH session failed for instance ${instanceId}:`, internalError)
+            safeSend(socket, JSON.stringify({ type: 'error', code: 'CONNECTION_FAILED', message: 'Failed to connect to terminal' }))
+            socket.close(4000, 'Connection failed')
+          }
+          return
         }
 
         try {

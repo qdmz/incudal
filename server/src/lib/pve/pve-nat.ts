@@ -3,7 +3,7 @@ import type { Host } from '../../types/database.js'
 
 function getSshConfig(host: Host) {
   return {
-    host: host.url.replace(/^https?:\/\//, '').split(':')[0],
+    host: host.ip_address || host.url.replace(/^https?:\/\//, '').split(':')[0],
     port: host.pve_ssh_port || 22,
     username: 'root',
     password: host.pve_ssh_password || '',

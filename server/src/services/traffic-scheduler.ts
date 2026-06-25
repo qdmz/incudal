@@ -341,6 +341,7 @@ async function executeTrafficJob(startTime: number): Promise<void> {
     const instancesByHost = new Map<number, typeof instances>()
     for (const instance of instances) {
         if (instance.host.status !== 'online') continue
+        if ((instance.host as any).nodeType === 'pve') continue
 
         const hostInstances = instancesByHost.get(instance.host.id) || []
         hostInstances.push(instance)

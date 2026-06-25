@@ -16,6 +16,7 @@ import { getIncusClient } from '../lib/incus/incus-pool.js'
 import { isHostHealthy, recordHostSuccess, recordHostError, getAllHostHealth } from '../lib/incus/host-health.js'
 import { getInstanceState } from '../lib/incus/incus-instances.js'
 import { mapInstanceStatus } from '../lib/incus/incus-utils.js'
+import { getPveClient } from '../lib/pve/index.js'
 import { sendNotification } from '../lib/notifier.js'
 import * as db from '../db/index.js'
 
@@ -107,7 +108,8 @@ async function getInstancesToSync(batchSize: number) {
                     url: true,
                     certPath: true,
                     keyPath: true,
-                    status: true
+                    status: true,
+                    nodeType: true
                 }
             },
             user: {
@@ -150,12 +152,14 @@ async function syncInstanceStatus(
         incusId: string
         name: string
         status: string
+        pveVmid: number | null
         host: {
             id: number
             name: string
             url: string
             certPath: string | null
             keyPath: string | null
+            nodeType: string | null
         }
         user: { id: number }
     }
@@ -163,7 +167,6 @@ async function syncInstanceStatus(
     const startTime = Date.now()
 
     try {
-        // 检查宿主机健康状态
         if (!isHostHealthy(instance.host.id)) {
             return { changed: false, error: 'Host unhealthy, skipped' }
         }
@@ -173,35 +176,73 @@ async function syncInstanceStatus(
             return { changed: false, error: 'Host not found' }
         }
 
-        const client = await getIncusClient(host)
+        let remoteStatus: string | null = null
 
-        const state = await withTimeout(
-            getInstanceState(client, instance.incusId) as Promise<{ status?: string }>,
-            INSTANCE_TIMEOUT_MS,
-            'Instance state query timeout'
-        )
+        if (host.node_type === 'pve') {
+            const pveClient = getPveClient(host)
+            const vmid = instance.pveVmid
+            if (!vmid) {
+                return { changed: false, error: 'PVE instance missing vmid' }
+            }
+            try {
+                const isContainer = !instance.incusId || instance.incusId.startsWith('lxc-') || true
+                const statusResp = isContainer
+                    ? await pveClient.getLxcStatus(vmid)
+                    : await pveClient.getQemuStatus(vmid)
+                remoteStatus = statusResp?.status || null
+            } catch (err: any) {
+                const errMsg = err?.message || String(err)
+                if (errMsg.includes('does not exist') || errMsg.includes('not found') || errMsg.includes('404')) {
+                    remoteStatus = 'deleted'
+                } else {
+                    throw err
+                }
+            }
+        } else {
+            const client = await getIncusClient(host)
+            const state = await withTimeout(
+                getInstanceState(client, instance.incusId) as Promise<{ status?: string }>,
+                INSTANCE_TIMEOUT_MS,
+                'Instance state query timeout'
+            )
+            remoteStatus = state?.status || null
+        }
 
         const responseTime = Date.now() - startTime
         recordHostSuccess(instance.host.id, responseTime)
 
-        if (!state.status) {
+        if (!remoteStatus) {
             return { changed: false }
         }
 
-        const incusStatus = mapInstanceStatus(state.status)
+        let mappedStatus: string
+        if (host.node_type === 'pve') {
+            const pveStatusMap: Record<string, string> = {
+                running: 'running',
+                stopped: 'stopped',
+                paused: 'suspended',
+                deleted: 'deleted',
+            }
+            mappedStatus = pveStatusMap[remoteStatus] || 'unknown'
+        } else {
+            mappedStatus = mapInstanceStatus(remoteStatus)
+        }
 
-        if (incusStatus === 'unknown') {
+        if (mappedStatus === 'unknown' || mappedStatus === 'deleted') {
+            if (mappedStatus === 'deleted') {
+                console.log(`[StatusSync] Instance ${instance.id} not found on ${host.node_type || 'incus'} host, marking as deleted`)
+                await db.updateInstanceStatus(instance.id, 'deleted')
+                return { changed: true, from: instance.status, to: 'deleted' }
+            }
             return { changed: false }
         }
 
-        // 状态不一致，需要更新
-        if (instance.status !== incusStatus) {
+        if (instance.status !== mappedStatus) {
             await db.updateInstanceStatus(
                 instance.id,
-                incusStatus as 'creating' | 'running' | 'stopped' | 'error'
+                mappedStatus as 'creating' | 'running' | 'stopped' | 'error'
             )
             
-            // 同时更新 lastSyncedAt
             await prisma.instance.updateMany({
                 where: {
                     id: instance.id,
@@ -210,8 +251,7 @@ async function syncInstanceStatus(
                 data: { lastSyncedAt: new Date() }
             })
 
-            // 如果是从 running 变为 stopped，发送意外停机通知
-            if (instance.status === 'running' && incusStatus === 'stopped') {
+            if (instance.status === 'running' && mappedStatus === 'stopped') {
                 try {
                     await sendNotification(instance.user.id, 'instance_unexpected_stop', {
                         instanceName: instance.name,
@@ -225,11 +265,10 @@ async function syncInstanceStatus(
             return {
                 changed: true,
                 from: instance.status,
-                to: incusStatus
+                to: mappedStatus
             }
         }
 
-        // 状态相同，更新 lastSyncedAt 记录同步时间
         await prisma.instance.updateMany({
             where: {
                 id: instance.id,
@@ -244,9 +283,8 @@ async function syncInstanceStatus(
         const errorMessage = error instanceof Error ? error.message : String(error)
         recordHostError(instance.host.id)
 
-        // 如果实例不存在于 Incus，标记为已删除
         if (errorMessage.includes('not found') || errorMessage.includes('Instance not found')) {
-            console.log(`[StatusSync] Instance ${instance.id} not found in Incus, marking as deleted`)
+            console.log(`[StatusSync] Instance ${instance.id} not found, marking as deleted`)
             await db.updateInstanceStatus(instance.id, 'deleted')
             return {
                 changed: true,
@@ -309,6 +347,7 @@ async function executeStatusSyncJob(): Promise<void> {
                             console.log(`[StatusSync] Instance ${instance.id} (${instance.name}): ${result.from} → ${result.to}`)
                         }
                         if (result.error) {
+                            console.warn(`[StatusSync] Instance ${instance.id} (${instance.name}) error: ${result.error}`)
                             stats.totalErrors++
                         }
                         return result

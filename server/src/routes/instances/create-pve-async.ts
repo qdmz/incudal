@@ -33,6 +33,17 @@ export async function createPveInstanceAsync(
     const storage = config.storageName || host.pve_storage_name || 'local-lvm'
     const bridge = config.bridgeName || host.pve_bridge_name || 'vmbr0'
 
+    const internalIp = `172.16.1.${vmid}`
+    const internalGw = '172.16.1.1'
+    let net0Config = `name=eth0,bridge=${bridge},ip=${internalIp}/24,gw=${internalGw}`
+
+    if (host.ipv6_subnet) {
+      const ipv6Parts = host.ipv6_subnet.replace(/\/\d+$/, '').split(':')
+      const ipv6Addr = `${ipv6Parts.slice(0, 4).join(':')}:${vmid.toString(16).padStart(4, '0')}::1/64`
+      const ipv6Gw = host.ipv6_gateway || `${ipv6Parts.slice(0, 4).join(':')}::1`
+      net0Config += `,ip6=${ipv6Addr},gw6=${ipv6Gw}`
+    }
+
     if (config.instanceType === 'vm') {
       const upid = await pveClient.createQemu({
         vmid,
@@ -59,7 +70,7 @@ export async function createPveInstanceAsync(
         memory: config.memory,
         storage,
         rootfs: `${storage}:${vmid},size=${config.disk}M`,
-        net0: `name=eth0,bridge=${bridge},ip=dhcp`,
+        net0: net0Config,
         unprivileged: 1,
         onboot: 1,
         start: 1,
@@ -68,7 +79,7 @@ export async function createPveInstanceAsync(
         ...(config.sshKey ? { 'ssh-public-keys': config.sshKey } : {}),
       })
       if (upid) await pveClient.waitForTask(upid)
-      console.log(`[PVE Provisioning] LXC 容器 ${vmid} 创建完成`)
+      console.log(`[PVE Provisioning] LXC 容器 ${vmid} 创建完成, 内网IP: ${internalIp}`)
     }
 
     await prisma.instance.updateMany({
@@ -89,7 +100,7 @@ export async function createPveInstanceAsync(
       if (bindableIpv4) {
         const allocatedPort = await db.allocatePort(host.id, 'tcp')
         if (allocatedPort) {
-          const targetIp = `10.0.0.${vmid % 250 + 1}`
+          const targetIp = `172.16.1.${vmid}`
           await pveAddNatRule(host, {
             protocol: 'tcp',
             publicIp: bindableIpv4,

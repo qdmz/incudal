@@ -582,7 +582,8 @@ export async function getRunningInstancesForTraffic() {
                     url: true,
                     certPath: true,
                     keyPath: true,
-                    status: true
+                    status: true,
+                    nodeType: true
                 }
             },
             user: {
@@ -629,7 +630,8 @@ export async function getRunningInstancesForTrafficByIds(instanceIds: number[]) 
                     url: true,
                     certPath: true,
                     keyPath: true,
-                    status: true
+                    status: true,
+                    nodeType: true
                 }
             },
             user: {
@@ -672,7 +674,8 @@ export async function getRunningInstancesForTrafficByUserId(userId: number) {
                     url: true,
                     certPath: true,
                     keyPath: true,
-                    status: true
+                    status: true,
+                    nodeType: true
                 }
             },
             user: {

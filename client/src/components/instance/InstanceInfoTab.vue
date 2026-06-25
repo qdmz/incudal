@@ -235,7 +235,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
         <div v-if="instance.ssh_port" class="flex justify-between">
           <dt class="text-gray-500">{{ t('instance.detail.info.sshPort') }}</dt>
           <dd :class="['flex items-center gap-2', themeStore.isDark ? 'text-gray-300' : 'text-gray-700']">
-            <span class="font-mono">{{ instance.ssh_port }}</span>
+            <span class="font-mono">{{ instance.natPublicIp ? instance.natPublicIp + ':' : '' }}{{ instance.ssh_port }}</span>
             <button 
               class="text-blue-400/70 hover:text-blue-400"
               :title="t('instance.detail.info.sshHelpTitle')"
@@ -247,7 +247,7 @@ function formatBandwidth(bandwidth: string | null | undefined): string {
             </button>
             <button 
               class="text-xs text-blue-500 hover:text-blue-400"
-              @click="emit('copy', instance.ssh_port?.toString() || '')"
+              @click="emit('copy', (instance.natPublicIp ? instance.natPublicIp + ':' : '') + (instance.ssh_port?.toString() || ''))"
             >
               {{ t('instance.detail.info.copy') }}
             </button>

@@ -30,22 +30,24 @@ export async function createPveInstanceAsync(
     const vmid = await pveClient.getNextVmId()
     console.log(`[PVE Provisioning] 分配 VMID: ${vmid}`)
 
-    const storage = config.storageName || host.pve_storage_name || 'local-lvm'
-    const bridge = config.bridgeName || host.pve_bridge_name || 'vmbr0'
+    const storage = config.storageName || host.pve_storage_name || 'local'
+    const bridge = config.bridgeName || host.pve_bridge_name || 'vmbr1'
 
     const internalIp = `172.16.1.${vmid}`
     const internalGw = '172.16.1.1'
     let net0Config = `name=eth0,bridge=${bridge},ip=${internalIp}/24,gw=${internalGw}`
+    let net1Config = ''
 
     if (host.ipv6_subnet) {
       const ipv6Parts = host.ipv6_subnet.replace(/\/\d+$/, '').split(':')
       const ipv6Addr = `${ipv6Parts.slice(0, 4).join(':')}:${vmid.toString(16).padStart(4, '0')}::1/64`
       const ipv6Gw = host.ipv6_gateway || `${ipv6Parts.slice(0, 4).join(':')}::1`
-      net0Config += `,ip6=${ipv6Addr},gw6=${ipv6Gw}`
+      const ipv6Bridge = (host as any).pve_ipv6_bridge_name || 'vmbr2'
+      net1Config = `name=eth1,bridge=${ipv6Bridge},ip6=${ipv6Addr},gw6=${ipv6Gw}`
     }
 
     if (config.instanceType === 'vm') {
-      const upid = await pveClient.createQemu({
+      const qemuParams: Record<string, any> = {
         vmid,
         name: config.name,
         cores: config.cpu,
@@ -56,14 +58,18 @@ export async function createPveInstanceAsync(
         scsi0: `${storage}:${vmid}/disk-0,size=${config.disk}M`,
         onboot: 1,
         agent: 1,
-        ...(config.image ? { ide2: config.image, cdrom: 1 } : {}),
-        ...(config.password ? { cipassword: config.password } : {}),
-        ...(config.sshKey ? { 'ssh-public-keys': config.sshKey } : {}),
-      })
+      }
+      if (net1Config) qemuParams.net1 = `virtio,bridge=${(host as any).pve_ipv6_bridge_name || 'vmbr2'}`
+      if (config.image && config.image.includes(':iso/')) {
+        qemuParams.ide2 = `${config.image},media=cdrom`
+      }
+      if (config.password) qemuParams.cipassword = config.password
+      if (config.sshKey) qemuParams['ssh-public-keys'] = config.sshKey
+      const upid = await pveClient.createQemu(qemuParams as any)
       if (upid) await pveClient.waitForTask(upid)
       console.log(`[PVE Provisioning] QEMU VM ${vmid} 创建完成`)
     } else {
-      const upid = await pveClient.createLxc({
+      const lxcParams: Record<string, any> = {
         vmid,
         hostname: config.name,
         cores: config.cpu,
@@ -74,10 +80,12 @@ export async function createPveInstanceAsync(
         unprivileged: 1,
         onboot: 1,
         start: 1,
-        ...(config.image ? { ostemplate: config.image } : {}),
-        ...(config.password ? { password: config.password } : {}),
-        ...(config.sshKey ? { 'ssh-public-keys': config.sshKey } : {}),
-      })
+      }
+      if (net1Config) lxcParams.net1 = net1Config
+      if (config.image) lxcParams.ostemplate = config.image
+      if (config.password) lxcParams.password = config.password
+      if (config.sshKey) lxcParams['ssh-public-keys'] = config.sshKey
+      const upid = await pveClient.createLxc(lxcParams as any)
       if (upid) await pveClient.waitForTask(upid)
       console.log(`[PVE Provisioning] LXC 容器 ${vmid} 创建完成, 内网IP: ${internalIp}`)
 

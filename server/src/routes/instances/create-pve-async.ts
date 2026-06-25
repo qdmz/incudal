@@ -80,6 +80,20 @@ export async function createPveInstanceAsync(
       })
       if (upid) await pveClient.waitForTask(upid)
       console.log(`[PVE Provisioning] LXC 容器 ${vmid} 创建完成, 内网IP: ${internalIp}`)
+
+      if (config.password) {
+        try {
+          const { sshExec } = await import('../../lib/ssh-exec.js')
+          const sshHost = host.url.replace(/^https?:\/\//, '').split(':')[0]
+          const sshPort = host.pve_ssh_port || 22
+          await sshExec(sshHost, sshPort, 'root', host.pve_ssh_password || '', 
+            `pct exec ${vmid} -- bash -c 'sed -i \"s/^#*PermitRootLogin.*/PermitRootLogin yes/\" /etc/ssh/sshd_config && systemctl restart sshd 2>/dev/null || service sshd restart 2>/dev/null || service ssh restart 2>/dev/null || true'`
+          )
+          console.log(`[PVE Provisioning] LXC ${vmid} 已启用 root 密码登录`)
+        } catch (sshErr) {
+          console.error(`[PVE Provisioning] LXC ${vmid} 启用 root 密码登录失败:`, sshErr instanceof Error ? sshErr.message : String(sshErr))
+        }
+      }
     }
 
     await prisma.instance.updateMany({

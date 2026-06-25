@@ -607,9 +607,22 @@ async function executeDestroyForUser(
       try {
         const host = await db.getHostById(instance.hostId)
         if (host) {
-          const { getIncusClient, stopInstance } = await import('../lib/incus/index.js')
-          const client = await getIncusClient(host)
-          await stopInstance(client, instance.incusId, true)
+          if (host.node_type === 'pve' && instance.pveVmid) {
+            const { getPveClient } = await import('../lib/pve/index.js')
+            const pveClient = getPveClient(host)
+            try { await pveClient.stopLxc(instance.pveVmid) } catch {}
+            for (let i = 0; i < 30; i++) {
+              await new Promise(r => setTimeout(r, 2000))
+              try {
+                const status = await pveClient.getLxcStatus(instance.pveVmid)
+                if (status?.status === 'stopped') break
+              } catch {}
+            }
+          } else {
+            const { getIncusClient, stopInstance } = await import('../lib/incus/index.js')
+            const client = await getIncusClient(host)
+            await stopInstance(client, instance.incusId, true)
+          }
         }
       } catch (err) {
         logger.warn(err, '停止实例失败')
@@ -617,6 +630,21 @@ async function executeDestroyForUser(
     }
 
     const portMappings = await prisma.portMapping.findMany({ where: { instanceId } })
+
+    if (instance.pveVmid) {
+      try {
+        const host = await db.getHostById(instance.hostId)
+        if (host && host.node_type === 'pve') {
+          const { pveRemoveNatRule } = await import('../lib/pve/pve-nat.js')
+          logger.warn({ instanceId, portMappingsCount: portMappings.length }, 'Removing PVE NAT rules before cleanup')
+          for (const pm of portMappings) {
+            await pveRemoveNatRule(host, { protocol: pm.protocol as 'tcp' | 'udp', publicIp: host.nat_public_ip || '', publicPort: pm.publicPort })
+          }
+        }
+      } catch (natErr) {
+        logger.warn(natErr, 'PVE NAT 规则删除失败')
+      }
+    }
 
     try {
       await prisma.snapshot.deleteMany({ where: { instanceId } })
@@ -640,12 +668,27 @@ async function executeDestroyForUser(
     try {
       const host = await db.getHostById(instance.hostId)
       if (host) {
-        const { getIncusClient, deleteInstance } = await import('../lib/incus/index.js')
-        const client = await getIncusClient(host)
-        await deleteInstance(client, instance.incusId)
+        if (host.node_type === 'pve' && instance.pveVmid) {
+          const { getPveClient } = await import('../lib/pve/index.js')
+          const pveClient = getPveClient(host)
+          try { await pveClient.deleteLxc(instance.pveVmid) } catch (pveErr) {
+            logger.error(pveErr, 'PVE 删除实例失败')
+          }
+          try {
+            const { pveRemoveNatRule } = await import('../lib/pve/pve-nat.js')
+            const portMaps = await prisma.portMapping.findMany({ where: { instanceId } })
+            for (const pm of portMaps) {
+              await pveRemoveNatRule(host, { protocol: pm.protocol as 'tcp' | 'udp', publicIp: host.nat_public_ip || '', publicPort: pm.publicPort })
+            }
+          } catch {}
+        } else {
+          const { getIncusClient, deleteInstance } = await import('../lib/incus/index.js')
+          const client = await getIncusClient(host)
+          await deleteInstance(client, instance.incusId)
+        }
       }
     } catch (incusErr) {
-      logger.error(incusErr, 'Incus 删除实例失败')
+      logger.error(incusErr, '删除实例失败')
     }
 
     const portMappingsCount = portMappings?.length || 0
@@ -1126,9 +1169,22 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
         try {
           const host = await db.getHostById(instance.hostId)
           if (host) {
-            const { getIncusClient, stopInstance } = await import('../lib/incus/index.js')
-            const client = await getIncusClient(host)
-            await stopInstance(client, instance.incusId, true)
+            if (host.node_type === 'pve' && instance.pveVmid) {
+              const { getPveClient } = await import('../lib/pve/index.js')
+              const pveClient = getPveClient(host)
+              try { await pveClient.stopLxc(instance.pveVmid) } catch {}
+              for (let i = 0; i < 30; i++) {
+                await new Promise(r => setTimeout(r, 2000))
+                try {
+                  const status = await pveClient.getLxcStatus(instance.pveVmid)
+                  if (status?.status === 'stopped') break
+                } catch {}
+              }
+            } else {
+              const { getIncusClient, stopInstance } = await import('../lib/incus/index.js')
+              const client = await getIncusClient(host)
+              await stopInstance(client, instance.incusId, true)
+            }
           }
         } catch (err) {
           request.log.warn(err, '停止实例失败')
@@ -1137,6 +1193,22 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
 
       // 2. 获取端口映射数量（用于释放资源）
       const portMappings = await prisma.portMapping.findMany({ where: { instanceId } })
+
+      // 2.5 PVE 节点：先删除 NAT 规则（在清理关联数据之前）
+      if (instance.pveVmid) {
+        try {
+          const host = await db.getHostById(instance.hostId)
+          if (host && host.node_type === 'pve') {
+            const { pveRemoveNatRule } = await import('../lib/pve/pve-nat.js')
+            request.log.info({ instanceId, portMappingsCount: portMappings.length }, 'Removing PVE NAT rules before cleanup')
+            for (const pm of portMappings) {
+              await pveRemoveNatRule(host, { protocol: pm.protocol as 'tcp' | 'udp', publicIp: host.nat_public_ip || '', publicPort: pm.publicPort })
+            }
+          }
+        } catch (natErr) {
+          request.log.warn(natErr, 'PVE NAT 规则删除失败')
+        }
+      }
 
       // 3. 清理关联数据
       try {
@@ -1158,16 +1230,25 @@ export default async function instanceDestroyRoutes(fastify: FastifyInstance) {
         request.log.warn(cleanupErr, '清理关联数据失败')
       }
 
-      // 4. 从 Incus 删除实例
+      // 4. 删除实例
       try {
         const host = await db.getHostById(instance.hostId)
         if (host) {
-          const { getIncusClient, deleteInstance } = await import('../lib/incus/index.js')
-          const client = await getIncusClient(host)
-          await deleteInstance(client, instance.incusId)
+          if (host.node_type === 'pve' && instance.pveVmid) {
+            const { getPveClient } = await import('../lib/pve/index.js')
+            const pveClient = getPveClient(host)
+            try { await pveClient.deleteLxc(instance.pveVmid) } catch (pveErr) {
+              request.log.error(pveErr, 'PVE 删除实例失败')
+            }
+
+          } else {
+            const { getIncusClient, deleteInstance } = await import('../lib/incus/index.js')
+            const client = await getIncusClient(host)
+            await deleteInstance(client, instance.incusId)
+          }
         }
       } catch (incusErr) {
-        request.log.error(incusErr, 'Incus 删除实例失败')
+        request.log.error(incusErr, '删除实例失败')
       }
 
       // 6. 释放宿主机资源

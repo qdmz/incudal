@@ -3821,6 +3821,7 @@ async function createInstanceAsync(
       console.log(`[Admin Provisioning] PVE 节点，使用 PVE 创建流程`)
       const instance = await db.getInstanceById(instanceId)
       const rootPwd = (instance?.root_password ? decryptSensitiveData(instance.root_password) : generateRandomPassword(16)) ?? 'incudal'
+      console.log(`[Admin Provisioning] PVE root password for instance ${instanceId}: ${rootPwd.substring(0, 3)}*** (length: ${rootPwd.length})`)
       await createPveInstanceAsync(instanceId, host, {
         name: config.name,
         image: config.image,

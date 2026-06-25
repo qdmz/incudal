@@ -21,13 +21,13 @@ export async function pveAddNatRule(
   }
 ): Promise<void> {
   const ssh = getSshConfig(host)
-  const { protocol, publicIp, publicPort, targetIp, targetPort } = params
+  const { protocol, publicPort, targetIp, targetPort } = params
 
-  const rule = `-t nat -A PREROUTING -p ${protocol} -d ${publicIp} --dport ${publicPort} -j DNAT --to-destination ${targetIp}:${targetPort}`
-  const comment = `-m comment --comment "incudal:${protocol}:${publicPort}"`
+  const proto = protocol === 'tcp' ? 'tcp' : 'udp'
+  const comment = `incudal-${proto}-${publicPort}`
 
   await sshExec(ssh.host, ssh.port, ssh.username, ssh.password,
-    `iptables ${rule.replace('-A PREROUTING', `-A PREROUTING ${comment}`)} && iptables-save > /etc/iptables/rules.v4 2>/dev/null || true`
+    `nft add rule ip nat prerouting iifname "vmbr0" ${proto} dport ${publicPort} dnat to ${targetIp}:${targetPort} comment \\"${comment}\\"`
   )
 }
 
@@ -42,8 +42,11 @@ export async function pveRemoveNatRule(
   const ssh = getSshConfig(host)
   const { protocol, publicPort } = params
 
+  const proto = protocol === 'tcp' ? 'tcp' : 'udp'
+  const comment = `incudal-${proto}-${publicPort}`
+
   await sshExec(ssh.host, ssh.port, ssh.username, ssh.password,
-    `line=$(iptables -t nat -L PREROUTING -n --line-numbers | grep "incudal:${protocol}:${publicPort}" | head -1 | awk '{print $1}'); if [ -n "$line" ]; then iptables -t nat -D PREROUTING $line; iptables-save > /etc/iptables/rules.v4 2>/dev/null || true; fi`
+    `handle=$(nft -a list chain ip nat prerouting 2>/dev/null | grep \\"${comment}\\" | awk '{print $NF}'); if [ -n "$handle" ]; then nft delete rule ip nat prerouting handle $handle; fi`
   )
 }
 
@@ -59,11 +62,11 @@ export async function pveAddIpv6NatRule(
   const ssh = getSshConfig(host)
   const { protocol, publicIpv6, publicPort, targetPort } = params
 
-  const rule = `-t nat -A PREROUTING -p ${protocol} -d ${publicIpv6} --dport ${publicPort} -j DNAT --to-destination [::]:${targetPort}`
-  const comment = `-m comment --comment "incudal:v6:${protocol}:${publicPort}"`
+  const proto = protocol === 'tcp' ? 'tcp' : 'udp'
+  const comment = `incudal-v6-${proto}-${publicPort}`
 
   await sshExec(ssh.host, ssh.port, ssh.username, ssh.password,
-    `ip6tables ${rule.replace('-A PREROUTING', `-A PREROUTING ${comment}`)} && ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true`
+    `nft add rule ip6 nat prerouting iifname "vmbr0" ${proto} dport ${publicPort} dnat to [${publicIpv6}]:${targetPort} comment \\"${comment}\\"`
   )
 }
 
@@ -78,7 +81,10 @@ export async function pveRemoveIpv6NatRule(
   const ssh = getSshConfig(host)
   const { protocol, publicPort } = params
 
+  const proto = protocol === 'tcp' ? 'tcp' : 'udp'
+  const comment = `incudal-v6-${proto}-${publicPort}`
+
   await sshExec(ssh.host, ssh.port, ssh.username, ssh.password,
-    `line=$(ip6tables -t nat -L PREROUTING -n --line-numbers | grep "incudal:v6:${protocol}:${publicPort}" | head -1 | awk '{print $1}'); if [ -n "$line" ]; then ip6tables -t nat -D PREROUTING $line; ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true; fi`
+    `handle=$(nft -a list chain ip6 nat prerouting 2>/dev/null | grep \\"${comment}\\" | awk '{print $NF}'); if [ -n "$handle" ]; then nft delete rule ip6 nat prerouting handle $handle; fi`
   )
 }

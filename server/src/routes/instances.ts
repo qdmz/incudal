@@ -801,9 +801,10 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // 注意：能否开通实例只跟宿主机的资源有关，不检查套餐包资源限制
     // 宿主机资源检查在 selectAvailableHost 中进行
 
-    // 3. 验证认证方式（必须提供 SSH 公钥）
-    // 注意：不再限制用户的实例配额，用户可以创建无限数量的实例
-    if (!sshKey) {
+    // 3. 验证认证方式（Incus 节点必须提供 SSH 公钥，PVE 节点使用密码认证）
+    const hostForCheckSsh = await db.getHostById(hostId)
+    const isPveNodeForSsh = hostForCheckSsh?.node_type === 'pve'
+    if (!isPveNodeForSsh && !sshKey) {
       return reply.code(400).send(apiError(ErrorCode.SSH_KEY_REQUIRED))
     }
 

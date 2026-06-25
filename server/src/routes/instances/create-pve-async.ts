@@ -79,6 +79,43 @@ export async function createPveInstanceAsync(
       }
     })
 
+    // 自动添加 SSH 端口映射 (22)
+    try {
+      const { pveAddNatRule } = await import('../../lib/pve/pve-nat.js')
+      const { selectBindableIpv4ListenAddress } = await import('../../lib/network-address.js')
+      const bindableIpv4 = selectBindableIpv4ListenAddress(
+        (host as any).nat_bind_ip || null, host.nat_public_ip || null, host.url, host.ip_address || null
+      )
+      if (bindableIpv4) {
+        const allocatedPort = await db.allocatePort(host.id, 'tcp')
+        if (allocatedPort) {
+          const targetIp = `10.0.0.${vmid % 250 + 1}`
+          await pveAddNatRule(host, {
+            protocol: 'tcp',
+            publicIp: bindableIpv4,
+            publicPort: allocatedPort,
+            targetIp,
+            targetPort: 22,
+          })
+          await db.createPortMapping({
+            instanceId,
+            hostId: host.id,
+            protocol: 'tcp',
+            publicPort: allocatedPort,
+            privatePort: 22,
+          })
+          await prisma.instance.update({
+            where: { id: instanceId },
+            data: { sshPort: allocatedPort },
+          })
+          console.log(`[PVE Provisioning] SSH 端口映射已添加: ${allocatedPort} -> ${targetIp}:22`)
+        }
+      }
+    } catch (portErr) {
+      console.error(`[PVE Provisioning] SSH 端口映射添加失败:`, portErr instanceof Error ? portErr.message : String(portErr))
+    }
+
+
     console.log(`[PVE Provisioning] ✔ 实例 ${instanceId} (vmid: ${vmid}) 创建成功!`)
 
     const instance = await db.getInstanceById(instanceId)

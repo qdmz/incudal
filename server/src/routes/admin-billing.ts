@@ -2755,12 +2755,17 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         return reply.status(400).send({ error: `用户 "${username}" 状态异常，无法创建实例` })
       }
 
-      // 4. 获取目标用户的 SSH 密钥
-      const targetUserSshKeys = await db.getSSHKeysByUserId(targetUser.id)
-      if (targetUserSshKeys.length === 0) {
-        return reply.status(400).send({ error: `用户 "${username}" 没有 SSH 密钥，请先让用户添加 SSH 密钥` })
+      // 4. 获取目标用户的 SSH 密钥（PVE 节点不需要 SSH 密钥，使用密码认证）
+      const sshCheckHost = await db.getHostById(hostId)
+      const isPveNode = sshCheckHost?.node_type === 'pve'
+      let sshKey: string | null = null
+      if (!isPveNode) {
+        const targetUserSshKeys = await db.getSSHKeysByUserId(targetUser.id)
+        if (targetUserSshKeys.length === 0) {
+          return reply.status(400).send({ error: `用户 "${username}" 没有 SSH 密钥，请先让用户添加 SSH 密钥` })
+        }
+        sshKey = targetUserSshKeys[0].public_key
       }
-      const sshKey = targetUserSshKeys[0].public_key
 
       // 5. 验证套餐
       const pkg = await db.getPackageById(packageId)
@@ -2804,9 +2809,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
       const requestedMemory = selectedPlan ? selectedPlan.memory : (memory || 128)
       const requestedDisk = selectedPlan ? selectedPlan.disk : (disk || 512)
 
-      // 7.1 获取宿主机信息
-      const hostForCheck = await db.getHostById(hostId)
-      const isPveNode = hostForCheck?.node_type === 'pve'
+      // 7.1 PVE 节点跳过镜像验证（isPveNode 已在步骤4中定义）
 
       // 8. 验证镜像
       if (!isPveNode && !await isValidSystemImage(image)) {
@@ -2901,7 +2904,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
         instanceName: name,
         imageAlias: image,
         rootPassword: autoPassword,
-        sshKey: sshKey,
+        sshKey: sshKey || undefined,
         networkMode,
         type: effectiveInstanceType === 'vm' ? 'virtual-machine' : 'container',
         extraShellCommands
@@ -3182,7 +3185,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
           instanceIdSeed: incusId,
           imageAlias: image,
           rootPassword: metaData.rootPassword,
-          sshKey: sshKey,
+          sshKey: sshKey || undefined,
           network: staticIPv4 ? {
             ipAddress: `${staticIPv4}/22`,
             gateway: '10.10.0.1',  // NAT 网关 (与 incusbr0 一致)
@@ -3200,7 +3203,7 @@ export default async function adminBillingRoutes(app: FastifyInstance): Promise<
           instanceName: name,
           imageAlias: image,
           rootPassword: metaData.rootPassword,
-          sshKey: sshKey,
+          sshKey: sshKey || undefined,
           networkMode,
           type: 'container',
           network: {

@@ -267,8 +267,9 @@ export async function getHostsPaginated(options: PaginationOptions = {}): Promis
     diskUsed: true,
     cpuAllowanceMax: true,
     memoryMax: true,
-    instanceType: true,
-    storageSize: true,
+      instanceType: true,
+      nodeType: true,
+      storageSize: true,
     tags: true,
     createdAt: true,
     updatedAt: true,
@@ -620,6 +621,7 @@ export async function getAvailableHosts(
       cpuAllowanceMax: true,
       memoryMax: true,
       instanceType: true,
+      nodeType: true,
       storageSize: true,
       probeUrl: true,
       tags: true,
@@ -717,6 +719,7 @@ export async function getAvailableHosts(
       disk_total: h.storageSize ? h.storageSize * 1024 : 0, // 只使用用户输入的存储大小（GB转MB），不使用实际磁盘容量
       disk_used: h.diskUsedCalculated,
       instance_type: h.instanceType,
+      node_type: h.nodeType,
       storage_size: h.storageSize,
       probe_url: h.probeUrl || null
     }

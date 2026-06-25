@@ -909,6 +909,7 @@ export interface AvailableHost {
   name: string
   location: string | null
   countryCode: string
+  nodeType?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api'
   architecture?: 'x86_64' | 'aarch64'
   probeUrl?: string | null
   trafficMultiplier?: number

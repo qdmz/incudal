@@ -922,12 +922,30 @@ async function loadAvailableImages(instanceType?: 'container' | 'vm', memory?: n
 
   imagesLoading.value = true
   try {
-    const res = await api.images.getSystemImages(instanceType, memory, hostId)
-    availableImages.value = (res.images || []).map(img => ({
-      value: img.remoteAlias,
-      label: img.name,
-      icon: img.icon || getDistroFromName(img.name)
-    }))
+    const selectedHost = availableHosts.value.find(h => h.id === hostId)
+    if (selectedHost?.nodeType === 'pve') {
+      const res = await api.hosts.getPveImages(hostId)
+      const allImages = [
+        ...(res.templates || []).map(t => ({
+          value: t.name,
+          label: t.name.replace(/^.*:/, ''),
+          icon: 'linux' as string | null
+        })),
+        ...(res.isos || []).map(i => ({
+          value: i.name,
+          label: i.name.replace(/^.*:/, ''),
+          icon: 'linux' as string | null
+        }))
+      ]
+      availableImages.value = allImages
+    } else {
+      const res = await api.images.getSystemImages(instanceType, memory, hostId)
+      availableImages.value = (res.images || []).map(img => ({
+        value: img.remoteAlias,
+        label: img.name,
+        icon: img.icon || getDistroFromName(img.name)
+      }))
+    }
     
     if (availableImages.value.length > 0) {
       const currentExists = availableImages.value.some((img) => img.value === form.value.image)

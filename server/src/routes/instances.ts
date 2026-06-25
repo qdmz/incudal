@@ -513,6 +513,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           location: string | null
           country_code: string | null
           architecture?: 'x86_64' | 'aarch64'
+          node_type?: string
           cpu_used: number
           cpu_allowance_max?: number
           memory_used: number
@@ -541,6 +542,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           name: host.name,
           location: host.location,
           countryCode: host.country_code || 'us',
+          nodeType: host.node_type || 'incus',
           architecture: host.architecture || 'x86_64',
           // 节点所有者信息
           ownerId: host.user_id,
@@ -3365,13 +3367,24 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // ===== 2. 删除端口映射（Incus 设备 + 数据库）=====
+      // ===== 2. 删除端口映射（Incus 设备 / PVE iptables + 数据库）=====
       const portMappings = await db.getPortMappings(instanceId)
       if (portMappings && portMappings.length > 0) {
         for (const mapping of portMappings) {
           const map = mapping as { id: number; protocol: string; public_port: number }
-          // 尝试删除 Incus 设备
-          if (client) {
+          if (host.node_type === 'pve') {
+            try {
+              const { pveRemoveNatRule } = await import('../lib/pve/pve-nat.js')
+              const bindableIpv4 = selectBindableIpv4ListenAddress(
+                (host as any).nat_bind_ip || null, host.nat_public_ip || null, host.url, host.ip_address || null
+              )
+              if (bindableIpv4) {
+                await pveRemoveNatRule(host, { protocol: map.protocol as 'tcp' | 'udp', publicIp: bindableIpv4, publicPort: map.public_port })
+              }
+            } catch (pveError) {
+              console.error(`PVE 删除端口映射失败 (${map.protocol}-${map.public_port}):`, pveError)
+            }
+          } else if (client) {
             const deviceName = `proxy-${map.protocol}-${map.public_port}`
             try {
               await removeDevice(client, instance.incus_id, deviceName)
@@ -3690,6 +3703,28 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
 
     const createdDeviceNames: string[] = []
     try {
+      // PVE 节点使用 SSH + iptables 实现端口映射
+      if (host.node_type === 'pve') {
+        const { pveAddNatRule } = await import('../lib/pve/pve-nat.js')
+        const bindableIpv4 = selectBindableIpv4ListenAddress(
+          (host as any).nat_bind_ip || null,
+          host.nat_public_ip || null,
+          host.url,
+          host.ip_address || null
+        )
+        if (!bindableIpv4) {
+          return reply.code(400).send(apiError(ErrorCode.INVALID_PARAMS, 'PVE node missing bindable IPv4'))
+        }
+        const targetIp = instance.ipv4 || '10.0.0.1'
+        await pveAddNatRule(host, {
+          protocol,
+          publicIp: bindableIpv4,
+          publicPort: allocatedPort,
+          targetIp,
+          targetPort: privatePort
+        })
+        createdDeviceNames.push(`iptables-${protocol}-${allocatedPort}`)
+      } else {
       const client = await getIncusClient(host)
 
       const deviceName = `proxy-${protocol}-${allocatedPort}`
@@ -3747,6 +3782,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         await addDevice(client, instance.incus_id, resolvedDeviceName, deviceEntry.deviceConfig as Record<string, string>)
         createdDeviceNames.push(resolvedDeviceName)
       }
+      } // end else (Incus)
 
       const mappingId = await db.createPortMapping({
         instanceId: instanceId,
@@ -3768,10 +3804,20 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       try {
         const host = await db.getHostById(instance.host_id)
         if (host) {
-          const client = await getIncusClient(host)
-          const deviceName = `proxy-${protocol}-${allocatedPort}`
-          await removeDevice(client, instance.incus_id, deviceName)
-          await removeDevice(client, instance.incus_id, `${deviceName}-v6`)
+          if (host.node_type === 'pve') {
+            const { pveRemoveNatRule } = await import('../lib/pve/pve-nat.js')
+            const bindableIpv4 = selectBindableIpv4ListenAddress(
+              (host as any).nat_bind_ip || null, host.nat_public_ip || null, host.url, host.ip_address || null
+            )
+            if (bindableIpv4) {
+              await pveRemoveNatRule(host, { protocol, publicIp: bindableIpv4, publicPort: allocatedPort })
+            }
+          } else {
+            const client = await getIncusClient(host)
+            const deviceName = `proxy-${protocol}-${allocatedPort}`
+            await removeDevice(client, instance.incus_id, deviceName)
+            await removeDevice(client, instance.incus_id, `${deviceName}-v6`)
+          }
         }
       } catch {
         // 忽略回滚失败，保留原始错误
@@ -3825,11 +3871,21 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       if (!host) {
         throw new Error('Host not found')
       }
-      const client = await getIncusClient(host)
 
-      const deviceName = `proxy-${mapping.protocol}-${mapping.public_port}`
-      await removeDevice(client, instance.incus_id, deviceName)
-      await removeDevice(client, instance.incus_id, `${deviceName}-v6`)
+      if (host.node_type === 'pve') {
+        const { pveRemoveNatRule } = await import('../lib/pve/pve-nat.js')
+        const bindableIpv4 = selectBindableIpv4ListenAddress(
+          (host as any).nat_bind_ip || null, host.nat_public_ip || null, host.url, host.ip_address || null
+        )
+        if (bindableIpv4) {
+          await pveRemoveNatRule(host, { protocol: mapping.protocol, publicIp: bindableIpv4, publicPort: mapping.public_port })
+        }
+      } else {
+        const client = await getIncusClient(host)
+        const deviceName = `proxy-${mapping.protocol}-${mapping.public_port}`
+        await removeDevice(client, instance.incus_id, deviceName)
+        await removeDevice(client, instance.incus_id, `${deviceName}-v6`)
+      }
 
       await db.deletePortMapping(portMappingId)
 

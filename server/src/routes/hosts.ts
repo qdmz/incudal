@@ -8239,4 +8239,50 @@ export default async function hostRoutes(fastify: FastifyInstance) {
       status: task.status
     })
   })
+
+  // PVE 镜像列表
+  fastify.get<{
+    Params: { id: string }
+  }>('/:id/pve-images', {
+    onRequest: [fastify.authenticate]
+  }, async (request, reply) => {
+    const hostId = Number(request.params.id)
+    if (isNaN(hostId)) {
+      return reply.code(400).send(apiError(ErrorCode.INVALID_ID))
+    }
+
+    const host = await db.getHostById(hostId)
+    if (!host) {
+      return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
+    }
+
+    if (host.node_type !== 'pve') {
+      return reply.code(400).send({ error: 'Not a PVE node' })
+    }
+
+    try {
+      const pveClient = PveClient.fromHost(host as any)
+      const storage = host.pve_storage_name || 'local'
+      const [templates, isos] = await Promise.all([
+        pveClient.listContainerTemplates(storage).catch(() => []),
+        pveClient.listIsoImages(storage).catch(() => [])
+      ])
+
+      return {
+        templates: templates.map((t: any) => ({
+          name: t.volid || t.name,
+          size: t.size || 0,
+          type: 'vztmpl'
+        })),
+        isos: isos.map((i: any) => ({
+          name: i.volid || i.name,
+          size: i.size || 0,
+          type: 'iso'
+        }))
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      return reply.code(500).send({ error: errorMessage })
+    }
+  })
 }

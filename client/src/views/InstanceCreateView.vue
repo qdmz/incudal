@@ -936,6 +936,11 @@ async function loadAvailableImages(instanceType?: 'container' | 'vm', memory?: n
           label: '☁️ ' + i.name.replace(/^.*:/, ''),
           icon: 'linux' as string | null
         })),
+        ...(instanceType !== 'container' ? (res.vmTemplates || []).map(t => ({
+          value: `vmtemplate:${t.vmid}`,
+          label: '🖥️ ' + t.name,
+          icon: 'linux' as string | null
+        })) : []),
         ...(instanceType !== 'container' ? (res.isos || []).map(i => ({
           value: i.name,
           label: '💿 ' + i.name.replace(/^.*:/, ''),

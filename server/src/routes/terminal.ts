@@ -23,7 +23,7 @@ import {
 } from '../lib/pve/vnc-proxy.js'
 import type { WebSocket } from 'ws'
 import { consumeTerminalAccessTicket, generateTerminalAccessTicket } from '../lib/action-ticket.js'
-import { isAccessTokenInvalidated } from '../lib/security.js'
+import { isAccessTokenInvalidated, decryptSensitiveData } from '../lib/security.js'
 
 // 终端专用连接限制
 const TERMINAL_LIMITS = {
@@ -326,7 +326,7 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
               // QEMU VM: SSH 直连 VM（通过 NAT 端口映射）
               const natIp = host.nat_public_ip || host.ip_address || ''
               const vmSshPort = instance.ssh_port
-              const vmPassword = instance.root_password || ''
+              const vmPassword = (instance.root_password ? decryptSensitiveData(instance.root_password) : null) || ''
 
               const vmClient = new Client()
 
@@ -386,7 +386,7 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
               // LXC: SSH 直连 VM（通过 NAT 端口映射），不通过 PVE 宿主机
               const natIp = host.nat_public_ip || host.ip_address || ''
               const vmSshPort = instance.ssh_port
-              const vmPassword = instance.root_password || ''
+               const vmPassword = (instance.root_password ? decryptSensitiveData(instance.root_password) : null) || ''
 
               if (!vmSshPort) {
                 safeSend(socket, JSON.stringify({ type: 'error', code: 'NO_SSH_PORT', message: 'No SSH port mapping for this instance' }))

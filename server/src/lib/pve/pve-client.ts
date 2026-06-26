@@ -293,9 +293,10 @@ export class PveClient {
     return this.request('GET', `/nodes/${this._nodeName}/qemu/${vmid}/config`)
   }
 
-  async updateQemu(vmid: number, params: Record<string, any>): Promise<string> {
-    return this.request('PUT', `/nodes/${this._nodeName}/qemu/${vmid}/config`, params)
+  async updateQemu(vmid: number, params: Record<string, any>): Promise<any> {
+    return this.request('POST', `/nodes/${this._nodeName}/qemu/${vmid}/config`, params)
   }
+
 
   async vncProxyQemu(vmid: number, websocket?: number): Promise<{ port: number; ticket: string }> {
     const params: Record<string, any> = { websocket: websocket ?? 1 }
@@ -330,6 +331,28 @@ export class PveClient {
   async listVmImages(storage: string = 'local'): Promise<any[]> {
     const content = await this.listStorageContent(storage)
     return content.filter((item: any) => item.content === 'images' && !item.volid.includes('/vm-') || (item.content === 'images' && item.volid.includes('base-')))
+  }
+
+  async listVmTemplates(): Promise<Array<{vmid: number; name: string; description?: string}>> {
+    const vms = await this.request('GET', `/nodes/${this._nodeName}/qemu`) || []
+    return vms
+      .filter((vm: any) => vm.template === 1)
+      .map((vm: any) => ({
+        vmid: vm.vmid,
+        name: vm.name || `VM ${vm.vmid}`,
+      }))
+  }
+
+  async cloneQemu(newVmid: number, sourceVmid: number, name: string, description?: string): Promise<string> {
+    const params: Record<string, any> = {
+      newid: newVmid,
+      name,
+      target: this._nodeName,
+      full: 1,
+    }
+    if (description) params.description = description
+    const result = await this.request('POST', `/nodes/${this._nodeName}/qemu/${sourceVmid}/clone`, params)
+    return result as string
   }
 
   // ==================== 网络 ====================

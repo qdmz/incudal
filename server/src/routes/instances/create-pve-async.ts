@@ -46,44 +46,80 @@ export async function createPveInstanceAsync(
       net1Config = `name=eth1,bridge=${ipv6Bridge},ip6=${ipv6Addr},gw6=${ipv6Gw}`
     }
 
-    const isVm = config.instanceType === 'vm' || (config.image && config.image.includes(':iso/'))
+    const isVm = config.instanceType === 'vm' || (config.image && (config.image.includes(':iso/') || config.image.startsWith('vmtemplate:')))
 
     if (isVm) {
-      const isCloudInit = config.image && !config.image.includes(':iso/')
-      const qemuParams: Record<string, any> = {
-        vmid,
-        name: config.name,
-        cores: config.cpu,
-        memory: config.memory,
-        storage,
-        net0: `virtio,bridge=${bridge}`,
-        boot: 'order=virtio0',
-        virtio0: `${storage}:${Math.max(1, Math.round(config.disk / 1024))}`,
-        onboot: 1,
-      }
-      if (net1Config) qemuParams.net1 = `virtio,bridge=${(host as any).pve_ipv6_bridge_name || 'vmbr2'}`
-      if (isCloudInit) {
-        qemuParams.cloudinit = `${storage}:cloudinit`
-        qemuParams.serial0 = 'socket'
-        qemuParams.ciuser = 'root'
-        if (config.password) qemuParams.cipassword = config.password
-        if (config.sshKey) qemuParams.sshkeys = config.sshKey
-        if (config.image) qemuParams.ide2 = `${config.image},media=cdrom`
-      } else {
-        qemuParams.agent = 1
-        if (config.image && config.image.includes(':iso/')) {
-          qemuParams.ide2 = `${config.image},media=cdrom`
+      const isVmTemplate = config.image && config.image.startsWith('vmtemplate:')
+      if (isVmTemplate) {
+        const sourceVmid = parseInt(config.image.replace('vmtemplate:', ''), 10)
+        console.log(`[PVE Provisioning] 从 VM 模板 ${sourceVmid} 克隆到 ${vmid}`)
+        const cloneUpid = await pveClient.cloneQemu(vmid, sourceVmid, config.name)
+        if (cloneUpid) await pveClient.waitForTask(cloneUpid, 300000)
+        console.log(`[PVE Provisioning] VM ${vmid} 克隆完成, 正在配置...`)
+
+        const updateParams: Record<string, any> = {
+          cores: config.cpu,
+          memory: config.memory,
+          onboot: 1,
+          net0: `virtio,bridge=${bridge}`,
         }
-      }
-      const upid = await pveClient.createQemu(qemuParams as any)
-      if (upid) await pveClient.waitForTask(upid)
-      console.log(`[PVE Provisioning] QEMU VM ${vmid} 创建完成, 正在启动...`)
-      try {
-        const startUpid = await pveClient.startQemu(vmid)
-        if (startUpid) await pveClient.waitForTask(startUpid)
-        console.log(`[PVE Provisioning] QEMU VM ${vmid} 已启动`)
-      } catch (startErr) {
-        console.error(`[PVE Provisioning] QEMU VM ${vmid} 启动失败:`, startErr instanceof Error ? startErr.message : String(startErr))
+        if (net1Config) updateParams.net1 = `virtio,bridge=${(host as any).pve_ipv6_bridge_name || 'vmbr2'}`
+        updateParams.ipconfig0 = `ip=${internalIp}/24,gw=${internalGw}`
+        if (host.ipv6_subnet) {
+          const ipv6Parts = host.ipv6_subnet.replace(/\/\d+$/, '').split(':')
+          const ipv6Addr = `${ipv6Parts.slice(0, 4).join(':')}:${vmid.toString(16).padStart(4, '0')}::1/64`
+          const ipv6Gw = host.ipv6_gateway || `${ipv6Parts.slice(0, 4).join(':')}::1`
+          updateParams.ipconfig1 = `ip6=${ipv6Addr},gw6=${ipv6Gw}`
+        }
+        if (config.password) updateParams.cipassword = config.password
+        if (config.sshKey) updateParams.sshkeys = config.sshKey
+        updateParams.ciuser = 'root'
+        await pveClient.updateQemu(vmid, updateParams)
+
+        try {
+          const startUpid = await pveClient.startQemu(vmid)
+          if (startUpid) await pveClient.waitForTask(startUpid)
+          console.log(`[PVE Provisioning] VM ${vmid} 已启动`)
+        } catch (startErr) {
+          console.error(`[PVE Provisioning] VM ${vmid} 启动失败:`, startErr instanceof Error ? startErr.message : String(startErr))
+        }
+      } else {
+        const isCloudInit = config.image && !config.image.includes(':iso/')
+        const qemuParams: Record<string, any> = {
+          vmid,
+          name: config.name,
+          cores: config.cpu,
+          memory: config.memory,
+          storage,
+          net0: `virtio,bridge=${bridge}`,
+          boot: 'order=virtio0',
+          virtio0: `${storage}:${Math.max(1, Math.round(config.disk / 1024))}`,
+          onboot: 1,
+        }
+        if (net1Config) qemuParams.net1 = `virtio,bridge=${(host as any).pve_ipv6_bridge_name || 'vmbr2'}`
+        if (isCloudInit) {
+          qemuParams.cloudinit = `${storage}:cloudinit`
+          qemuParams.serial0 = 'socket'
+          qemuParams.ciuser = 'root'
+          if (config.password) qemuParams.cipassword = config.password
+          if (config.sshKey) qemuParams.sshkeys = config.sshKey
+          if (config.image) qemuParams.ide2 = `${config.image},media=cdrom`
+        } else {
+          qemuParams.agent = 1
+          if (config.image && config.image.includes(':iso/')) {
+            qemuParams.ide2 = `${config.image},media=cdrom`
+          }
+        }
+        const upid = await pveClient.createQemu(qemuParams as any)
+        if (upid) await pveClient.waitForTask(upid)
+        console.log(`[PVE Provisioning] QEMU VM ${vmid} 创建完成, 正在启动...`)
+        try {
+          const startUpid = await pveClient.startQemu(vmid)
+          if (startUpid) await pveClient.waitForTask(startUpid)
+          console.log(`[PVE Provisioning] QEMU VM ${vmid} 已启动`)
+        } catch (startErr) {
+          console.error(`[PVE Provisioning] QEMU VM ${vmid} 启动失败:`, startErr instanceof Error ? startErr.message : String(startErr))
+        }
       }
     } else {
       const lxcParams: Record<string, any> = {
@@ -112,7 +148,7 @@ export async function createPveInstanceAsync(
           const sshHost = host.ip_address || host.url.replace(/^https?:\/\//, '').split(':')[0]
           const sshPort = host.pve_ssh_port || 22
           await sshExec(sshHost, sshPort, 'root', host.pve_ssh_password || '', 
-            `pct exec ${vmid} -- bash -c 'sed -i \"s/^#*PermitRootLogin.*/PermitRootLogin yes/\" /etc/ssh/sshd_config && echo \"PasswordAuthentication yes\" >> /etc/ssh/sshd_config && sed -i \"s/^session.*pam_systemd/#&/\" /etc/pam.d/common-session && systemctl disable ssh.socket 2>/dev/null && systemctl stop ssh.socket 2>/dev/null && systemctl enable ssh.service 2>/dev/null && systemctl restart ssh.service 2>/dev/null || service ssh restart 2>/dev/null || true'`
+            `pct exec ${vmid} -- bash -c 'echo root:${config.password} | chpasswd && sed -i \"s/^#*PermitRootLogin.*/PermitRootLogin yes/\" /etc/ssh/sshd_config && echo \"PasswordAuthentication yes\" >> /etc/ssh/sshd_config && sed -i \"s/^session.*pam_systemd/#&/\" /etc/pam.d/common-session && systemctl disable ssh.socket 2>/dev/null && systemctl stop ssh.socket 2>/dev/null && systemctl enable ssh.service 2>/dev/null && systemctl restart ssh.service 2>/dev/null || service ssh restart 2>/dev/null || true'`
           )
           console.log(`[PVE Provisioning] LXC ${vmid} 已启用 root 密码登录`)
         } catch (sshErr) {

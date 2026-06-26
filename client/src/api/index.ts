@@ -1361,7 +1361,7 @@ const api = {
     delete: (id: number): Promise<void> => http.delete(`/hosts/${id}`),
     test: (id: number): Promise<{ success: boolean; message?: string }> =>
       http.post(`/hosts/${id}/test`, {}, { timeout: TIMEOUT.MEDIUM }),
-    getPveImages: (id: number): Promise<{ templates: Array<{ name: string; size: number; type: string }>; isos: Array<{ name: string; size: number; type: string }>; vmImages: Array<{ name: string; size: number; type: string }> }> =>
+    getPveImages: (id: number): Promise<{ templates: Array<{ name: string; size: number; type: string }>; isos: Array<{ name: string; size: number; type: string }>; vmImages: Array<{ name: string; size: number; type: string }>; vmTemplates: Array<{ vmid: number; name: string; type: string }> }> =>
       http.get(`/hosts/${id}/pve-images`),
     takeoverOfficial: (id: number): Promise<{
       success: boolean

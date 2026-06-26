@@ -8275,9 +8275,10 @@ export default async function hostRoutes(fastify: FastifyInstance) {
     try {
       const pveClient = PveClient.fromHost(host as any)
       const storage = host.pve_storage_name || 'local'
-      const [templates, isos] = await Promise.all([
+      const [templates, isos, vmImages] = await Promise.all([
         pveClient.listContainerTemplates(storage).catch(() => []),
-        pveClient.listIsoImages(storage).catch(() => [])
+        pveClient.listIsoImages(storage).catch(() => []),
+        pveClient.listVmImages(storage).catch(() => [])
       ])
 
       return {
@@ -8290,6 +8291,11 @@ export default async function hostRoutes(fastify: FastifyInstance) {
           name: i.volid || i.name,
           size: i.size || 0,
           type: 'iso'
+        })),
+        vmImages: vmImages.map((i: any) => ({
+          name: i.volid || i.name,
+          size: i.size || 0,
+          type: 'vmimage'
         }))
       }
     } catch (error) {

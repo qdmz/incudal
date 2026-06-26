@@ -926,16 +926,21 @@ async function loadAvailableImages(instanceType?: 'container' | 'vm', memory?: n
     if (selectedHost?.nodeType === 'pve') {
       const res = await api.hosts.getPveImages(hostId)
       const allImages = [
-        ...(res.templates || []).map(t => ({
+        ...(instanceType !== 'vm' ? (res.templates || []).map(t => ({
           value: t.name,
           label: t.name.replace(/^.*:/, ''),
           icon: 'linux' as string | null
-        })),
-        ...(res.isos || []).map(i => ({
+        })) : []),
+        ...(res.vmImages || []).map(i => ({
           value: i.name,
-          label: i.name.replace(/^.*:/, ''),
+          label: '☁️ ' + i.name.replace(/^.*:/, ''),
           icon: 'linux' as string | null
-        }))
+        })),
+        ...(instanceType !== 'container' ? (res.isos || []).map(i => ({
+          value: i.name,
+          label: '💿 ' + i.name.replace(/^.*:/, ''),
+          icon: 'linux' as string | null
+        })) : [])
       ]
       availableImages.value = allImages
     } else {

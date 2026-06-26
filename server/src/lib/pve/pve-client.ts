@@ -327,6 +327,11 @@ export class PveClient {
     return content.filter((item: any) => item.content === 'vztmpl')
   }
 
+  async listVmImages(storage: string = 'local'): Promise<any[]> {
+    const content = await this.listStorageContent(storage)
+    return content.filter((item: any) => item.content === 'images' && !item.volid.includes('/vm-') || (item.content === 'images' && item.volid.includes('base-')))
+  }
+
   // ==================== 网络 ====================
 
   async listNetworkInterfaces(): Promise<any[]> {

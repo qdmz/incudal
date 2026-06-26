@@ -49,6 +49,7 @@ export async function createPveInstanceAsync(
     const isVm = config.instanceType === 'vm' || (config.image && config.image.includes(':iso/'))
 
     if (isVm) {
+      const isCloudInit = config.image && !config.image.includes(':iso/')
       const qemuParams: Record<string, any> = {
         vmid,
         name: config.name,
@@ -59,14 +60,21 @@ export async function createPveInstanceAsync(
         boot: 'order=virtio0',
         virtio0: `${storage}:${Math.max(1, Math.round(config.disk / 1024))}`,
         onboot: 1,
-        agent: 1,
       }
       if (net1Config) qemuParams.net1 = `virtio,bridge=${(host as any).pve_ipv6_bridge_name || 'vmbr2'}`
-      if (config.image && config.image.includes(':iso/')) {
-        qemuParams.ide2 = `${config.image},media=cdrom`
+      if (isCloudInit) {
+        qemuParams.cloudinit = `${storage}:cloudinit`
+        qemuParams.serial0 = 'socket'
+        qemuParams.ciuser = 'root'
+        if (config.password) qemuParams.cipassword = config.password
+        if (config.sshKey) qemuParams.sshkeys = config.sshKey
+        if (config.image) qemuParams.ide2 = `${config.image},media=cdrom`
+      } else {
+        qemuParams.agent = 1
+        if (config.image && config.image.includes(':iso/')) {
+          qemuParams.ide2 = `${config.image},media=cdrom`
+        }
       }
-      if (config.password) qemuParams.cipassword = config.password
-      if (config.sshKey) qemuParams['ssh-public-keys'] = config.sshKey
       const upid = await pveClient.createQemu(qemuParams as any)
       if (upid) await pveClient.waitForTask(upid)
       console.log(`[PVE Provisioning] QEMU VM ${vmid} 创建完成, 正在启动...`)

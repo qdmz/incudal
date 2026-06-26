@@ -2092,6 +2092,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       if (hostIpAddress) {
         ; (response as any).host_ip_address = hostIpAddress
       }
+      ; (response as any).hostNodeType = host?.node_type || null
       // 宿主机公网 IPv6（用于 nat_ipv6_nat / ipv6_nat 模式显示）
       if (hostIpv6Address) {
         ; (response as any).host_ipv6_address = hostIpv6Address
@@ -2120,6 +2121,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       if (hostIpAddress) {
         ; (response as any).host_ip_address = hostIpAddress
       }
+      ; (response as any).hostNodeType = host?.node_type || null
       // 宿主机公网 IPv6（用于 nat_ipv6_nat / ipv6_nat 模式显示）
       if (hostIpv6Address) {
         ; (response as any).host_ipv6_address = hostIpv6Address

@@ -26,6 +26,7 @@ export class PveClient {
   private _nodeName: string
   private apiToken: string | null
   private token: PveApiToken | null = null
+  private sshPassword: string | null = null
 
   constructor(options: PveApiOptions) {
     this.url = options.url.replace(/\/+$/, '')
@@ -40,7 +41,7 @@ export class PveClient {
   static fromHost(host: Host): PveClient {
     const username = host.pve_username || 'root@pam'
     const isTokenAuth = username.includes('!')
-    return new PveClient({
+    const client = new PveClient({
       url: host.url,
       username: isTokenAuth ? username.split('!')[0] : username,
       password: isTokenAuth ? '' : (host.pve_password || ''),
@@ -48,6 +49,8 @@ export class PveClient {
       nodeName: host.pve_node_name || 'pve',
       apiToken: isTokenAuth ? `${username}=${host.pve_password || ''}` : undefined,
     })
+    client.sshPassword = host.pve_ssh_password || null
+    return client
   }
 
   private async ensureToken(): Promise<void> {
@@ -147,6 +150,28 @@ export class PveClient {
   async ensureTicketForVnc(): Promise<string> {
     if (this.token && Date.now() < this.token.expiry - 60000) {
       return this.token.ticket
+    }
+    if (this.apiToken && this.sshPassword) {
+      const { sshExec } = await import('../ssh-exec.js')
+      const sshHost = this.url.replace(/^https?:\/\//, '').split(':')[0]
+      const sshPort = parseInt(this.url.replace(/^https?:\/\/[^:]+:?/, '').split('/')[0]) || 22
+      const result = await sshExec(sshHost, sshPort, 'root', this.sshPassword,
+        `curl -sk -d 'username=${encodeURIComponent(this.username)}&password=${encodeURIComponent(this.sshPassword)}' https://localhost:8006/api2/json/access/ticket`
+      )
+      const json = JSON.parse(result.stdout)
+      if (json?.data?.ticket && json?.data?.CSRFPreventionToken) {
+        this.token = {
+          ticket: json.data.ticket,
+          csrfPreventionToken: json.data.CSRFPreventionToken,
+          username: json.data.username || this.username,
+          expiry: Date.now() + 2 * 60 * 60 * 1000,
+        }
+        return this.token.ticket
+      }
+      throw new Error('Failed to get PVE ticket via SSH for VNC')
+    }
+    if (this.apiToken) {
+      throw new Error('Cannot get PVE ticket for VNC: API Token auth without SSH password')
     }
     await this.fetchTicket()
     return this.token!.ticket

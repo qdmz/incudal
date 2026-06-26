@@ -319,7 +319,7 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
         if (host.node_type === 'pve' && instance.pve_vmid) {
           try {
             const { Client } = await import('ssh2')
-            const vmid = instance.pve_vmid
+
             const isQemu = instance.instance_type === 'vm' || (instance.image && instance.image.includes(':iso/'))
 
             if (isQemu && instance.ssh_port) {
@@ -383,19 +383,25 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
 
               await createLog(user.id, 'terminal', 'terminal.connect', `Terminal connected | instance: ${instance.name} (#${instanceId}) | host: ${host.name} | type: pve-qemu-ssh | ip: ${clientIP}`, 'success', { instanceId })
             } else {
-              // LXC: SSH 到 PVE 宿主机，然后 pct enter
-              const sshHost = host.ip_address || host.url.replace(/^https?:\/\//, '').split(':')[0]
-              const sshPort = host.pve_ssh_port || 22
-              const sshPassword = host.pve_ssh_password || ''
+              // LXC: SSH 直连 VM（通过 NAT 端口映射），不通过 PVE 宿主机
+              const natIp = host.nat_public_ip || host.ip_address || ''
+              const vmSshPort = instance.ssh_port
+              const vmPassword = instance.root_password || ''
 
-              const sshClient = new Client()
+              if (!vmSshPort) {
+                safeSend(socket, JSON.stringify({ type: 'error', code: 'NO_SSH_PORT', message: 'No SSH port mapping for this instance' }))
+                socket.close(4000, 'No SSH port')
+                return
+              }
 
-              sshClient.on('ready', () => {
-                sshClient.shell({ term: 'xterm-256color', cols: 80, rows: 24 }, (shellErr, stream) => {
+              const vmClient = new Client()
+
+              vmClient.on('ready', () => {
+                vmClient.shell({ term: 'xterm-256color', cols: 80, rows: 24 }, (shellErr, stream) => {
                   if (shellErr) {
                     safeSend(socket, JSON.stringify({ type: 'error', code: 'CONNECTION_FAILED', message: 'Failed to open shell' }))
                     socket.close(4000, 'Connection failed')
-                    sshClient.end()
+                    vmClient.end()
                     return
                   }
 
@@ -420,30 +426,28 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
                     safeSend(socket, data.toString('utf8'))
                   })
                   stream.on('close', () => {
-                    sshClient.end()
+                    vmClient.end()
                     socket.close()
                   })
-
-                  stream.write(`pct enter ${vmid}\n`)
                 })
               })
 
-              sshClient.on('error', () => {
-                safeSend(socket, JSON.stringify({ type: 'error', code: 'CONNECTION_FAILED', message: 'SSH connection failed' }))
+              vmClient.on('error', () => {
+                safeSend(socket, JSON.stringify({ type: 'error', code: 'CONNECTION_FAILED', message: 'SSH connection to VM failed. VM may not have SSH ready yet.' }))
                 socket.close(4000, 'Connection failed')
               })
 
-              sshClient.on('close', () => {
+              vmClient.on('close', () => {
                 if (socket.readyState === socket.OPEN) socket.close()
               })
 
               socket.on('close', () => {
-                sshClient.end()
+                vmClient.end()
               })
 
-              sshClient.connect({ host: sshHost, port: sshPort, username: 'root', password: sshPassword, readyTimeout: 15000 })
+              vmClient.connect({ host: natIp, port: vmSshPort, username: 'root', password: vmPassword, readyTimeout: 15000 })
 
-              await createLog(user.id, 'terminal', 'terminal.connect', `Terminal connected | instance: ${instance.name} (#${instanceId}) | host: ${host.name} | type: pve-lxc | ip: ${clientIP}`, 'success', { instanceId })
+              await createLog(user.id, 'terminal', 'terminal.connect', `Terminal connected | instance: ${instance.name} (#${instanceId}) | host: ${host.name} | type: pve-lxc-ssh | ip: ${clientIP}`, 'success', { instanceId })
             }
 
 

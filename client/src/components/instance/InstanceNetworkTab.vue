@@ -97,6 +97,18 @@ const displayIpv6 = computed<string | null>(() => {
 })
 const networkMode = computed<string>(() => props.instance.network_mode || (props.instance as any)?.networkMode || '')
 const isIpv6OnlyInstance = computed<boolean>(() => networkMode.value === 'ipv6_only')
+
+const sshRemoteInfo = computed(() => {
+  if (!props.instance.ssh_port) return null
+  const hostNodeType = (props.instance as any).hostNodeType
+  if (hostNodeType !== 'pve') return null
+  const natIp = props.instance.natPublicIp || (props.instance as any).host_ip_address || ''
+  return {
+    host: natIp,
+    port: props.instance.ssh_port,
+    hasPassword: !!(props.instance as any).root_password
+  }
+})
 const hasPortQuota = computed<boolean>(() => portLimit.value !== 0) // 如果设置为0则没有配额，否则认为有配额（哪怕null）
 const portQuotaUsed = computed<number>(() => portMappings.value.length)
 const portQuotaRemaining = computed<number>(() => {
@@ -396,6 +408,39 @@ const canReassignIpv6 = computed(() => {
           </div>
         </template>
       </dl>
+    </div>
+
+    <!-- SSH Remote Connection Info (PVE instances) -->
+    <div v-if="sshRemoteInfo" class="card p-5">
+      <div class="flex items-center gap-2 mb-3">
+        <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+        <h2 class="text-sm font-medium" :class="themeStore.isDark ? 'text-gray-300' : 'text-gray-700'">
+          {{ t('instance.detail.network.sshRemoteInfo') }}
+        </h2>
+      </div>
+      <div class="rounded-lg p-3 font-mono text-xs space-y-1.5" :class="themeStore.isDark ? 'bg-gray-800/60 text-gray-300' : 'bg-gray-100 text-gray-700'">
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">Host:</span>
+          <span>{{ sshRemoteInfo.host }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">Port:</span>
+          <span>{{ sshRemoteInfo.port }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">User:</span>
+          <span>root</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">{{ t('instance.detail.network.password') }}:</span>
+          <span>{{ sshRemoteInfo.hasPassword ? '••••••••' : '-' }}</span>
+        </div>
+        <div class="pt-2 border-t" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
+          <code class="text-green-500 select-all">ssh root@{{ sshRemoteInfo.host }} -p {{ sshRemoteInfo.port }}</code>
+        </div>
+      </div>
     </div>
 
     <!-- Port Mappings (NAT modes) -->

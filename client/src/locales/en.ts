@@ -1445,6 +1445,8 @@ export default {
                 privateIpv4: 'Private IPv4',
                 publicIpv4: 'Public IPv4',
                 publicIpv6: 'Public IPv6',
+                sshRemoteInfo: 'SSH Remote Connection',
+                password: 'Password',
                 portMappings: 'Port Mappings',
                 publicIp: 'Public IP',
                 add: 'Add',

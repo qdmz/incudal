@@ -57,7 +57,7 @@ export async function createPveInstanceAsync(
         storage,
         net0: `virtio,bridge=${bridge}`,
         boot: 'order=virtio0',
-        virtio0: `${storage}:${config.disk}`,
+        virtio0: `${storage}:${Math.max(1, Math.round(config.disk / 1024))}`,
         onboot: 1,
         agent: 1,
       }

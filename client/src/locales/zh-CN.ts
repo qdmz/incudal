@@ -1445,6 +1445,8 @@ export default {
                 privateIpv4: '内网 IPv4',
                 publicIpv4: '公网 IPv4',
                 publicIpv6: '公网 IPv6',
+                sshRemoteInfo: 'SSH 远程连接',
+                password: '密码',
                 portMappings: '端口映射',
                 publicIp: '公网 IP',
                 add: '添加',

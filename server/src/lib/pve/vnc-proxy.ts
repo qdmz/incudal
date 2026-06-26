@@ -129,15 +129,24 @@ export async function createVncProxySession(
       pveWs.on('message', (data: Buffer) => {
         session.lastActivity = Date.now()
         if (clientSocket.readyState === clientSocket.OPEN) {
-          clientSocket.send(data)
+          if (data.length > 1 && data[0] === 0x01) {
+            clientSocket.send(data.subarray(1))
+          } else if (data.length > 1 && data[0] === 0x00) {
+            // channel 0 is qemu serial terminal, ignore for VNC
+          } else {
+            clientSocket.send(data)
+          }
         }
       })
 
       clientSocket.on('message', (data: Buffer | string) => {
         session.lastActivity = Date.now()
         if (pveWs.readyState === WebSocket.OPEN) {
-          const buf = typeof data === 'string' ? Buffer.from(data) : data
-          pveWs.send(buf)
+          const buf = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+          const framed = Buffer.alloc(buf.length + 1)
+          framed[0] = 0x01
+          buf.copy(framed, 1)
+          pveWs.send(framed)
         }
       })
 

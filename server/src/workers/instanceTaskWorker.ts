@@ -840,14 +840,15 @@ async function executeRestartTask(
 
 async function executePveStartTask(
   task: { id: number; userId: number; instanceId: number },
-  instance: { name: string },
+  instance: { name: string; instance_type?: string; image?: string },
   host: { name: string },
   pveClient: import('../lib/pve/pve-client.js').PveClient,
   vmid: number
 ): Promise<void> {
   await updateInstanceTaskProgress(task.id, 'starting')
 
-  const upid = await pveClient.startLxc(vmid)
+  const isQemu = instance.instance_type === 'vm' || (instance.image && instance.image.includes(':iso/'))
+  const upid = isQemu ? await pveClient.startQemu(vmid) : await pveClient.startLxc(vmid)
   if (upid) await pveClient.waitForTask(upid)
 
   await db.updateInstanceStatus(task.instanceId, 'running')
@@ -862,7 +863,7 @@ async function executePveStartTask(
 
 async function executePveStopTask(
   task: { id: number; userId: number; instanceId: number },
-  instance: { name: string },
+  instance: { name: string; instance_type?: string; image?: string },
   host: { name: string },
   pveClient: import('../lib/pve/pve-client.js').PveClient,
   vmid: number
@@ -879,7 +880,8 @@ async function executePveStopTask(
     console.log(`[PVE Stop] Closed ${closedSessions} terminal session(s) for instance ${task.instanceId}`)
   }
 
-  const upid = await pveClient.stopLxc(vmid)
+  const isQemu = instance.instance_type === 'vm' || (instance.image && instance.image.includes(':iso/'))
+  const upid = isQemu ? await pveClient.stopQemu(vmid) : await pveClient.stopLxc(vmid)
   if (upid) await pveClient.waitForTask(upid)
 
   await db.updateInstanceStatus(task.instanceId, 'stopped')
@@ -894,7 +896,7 @@ async function executePveStopTask(
 
 async function executePveRestartTask(
   task: { id: number; userId: number; instanceId: number },
-  instance: { name: string },
+  instance: { name: string; instance_type?: string; image?: string },
   host: { name: string },
   pveClient: import('../lib/pve/pve-client.js').PveClient,
   vmid: number
@@ -911,7 +913,8 @@ async function executePveRestartTask(
     console.log(`[PVE Restart] Closed ${closedSessions} terminal session(s) for instance ${task.instanceId}`)
   }
 
-  const upid = await pveClient.rebootLxc(vmid)
+  const isQemu = instance.instance_type === 'vm' || (instance.image && instance.image.includes(':iso/'))
+  const upid = isQemu ? await pveClient.rebootQemu(vmid) : await pveClient.rebootLxc(vmid)
   if (upid) await pveClient.waitForTask(upid)
 
   await db.updateInstanceStatus(task.instanceId, 'running')

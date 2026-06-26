@@ -207,6 +207,7 @@ export interface Instance {
   ipv4: string | null
   ipv6: string | null
   network_mode: 'nat' | 'nat_ipv6' | 'nat_ipv6_nat' | 'ipv6_only' | 'ipv6_nat'
+  instance_type?: 'container' | 'vm' | 'both'
   ssh_port: number | null
   root_password: string | null
   port_limit: number | null

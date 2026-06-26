@@ -326,6 +326,7 @@ export async function getHostsPaginated(options: PaginationOptions = {}): Promis
       cpu_allowance_max: h.cpuAllowanceMax,
       memory_max: h.memoryMax,
       instance_type: h.instanceType,
+      node_type: h.nodeType,
       storage_size: h.storageSize,
       tags: Array.isArray(h.tags) ? (h.tags as string[]) : [],
       created_at: h.createdAt.toISOString(),

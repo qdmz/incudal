@@ -298,7 +298,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           backupLimit: instance.backup_limit,
           siteLimit: instance.site_limit,
           // 实例类型：从套餐获取，默认为 container
-          instanceType: instance.package_instance_type === 'vm' ? 'vm' : 'container'
+          instanceType: (instance as any).instance_type === 'vm' ? 'vm' : (instance.package_instance_type === 'vm' ? 'vm' : 'container')
         }
 
         // Include user information for host owner or admin query
@@ -554,7 +554,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
         return null
       })(),
       packageName: i.package?.name || null,
-      instanceType: i.package?.instanceType === 'vm' ? 'vm' : 'container',
+      instanceType: (i as any).instanceType === 'vm' ? 'vm' : (i.package?.instanceType === 'vm' ? 'vm' : 'container'),
       allow_instance_deletion: i.package?.allowInstanceDeletion ?? true
     }))
 
@@ -1874,8 +1874,8 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     // 获取镜像显示名称
     const imageName = await getImageDisplayName(instance.image)
 
-    // 获取实例类型（从套餐包获取，默认为容器）
-    const instanceType = (pkg as { instance_type?: 'container' | 'vm' } | null)?.instance_type || 'container'
+    // 获取实例类型（优先使用实例自身的类型，回退到套餐类型）
+    const instanceType = (instance as any).instance_type || (pkg as { instance_type?: 'container' | 'vm' } | null)?.instance_type || 'container'
 
     const response: {
       id: number
@@ -2213,6 +2213,18 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
       if (!host) {
         throw new Error('Host not found')
       }
+
+      if (host.node_type === 'pve') {
+        return {
+          stats: {
+            memory: { usage: 0, limit: instance.memory, usagePercent: 0 },
+            disk: { usage: 0, limit: instance.disk, usagePercent: 0 },
+            network: { bytesReceived: 0, bytesSent: 0 }
+          },
+          status: instance.status
+        }
+      }
+
       const client = await getIncusClient(host)
 
       const state = await getInstanceState(client, instance.incus_id) as {
@@ -3875,6 +3887,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     }
 
     const createdDeviceNames: string[] = []
+
     try {
       // PVE 节点使用 SSH + iptables 实现端口映射
       if (host.node_type === 'pve') {
@@ -5683,6 +5696,17 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
     const host = await db.getHostById(instance.host_id)
     if (!host) {
       return reply.code(404).send(apiError(ErrorCode.HOST_NOT_FOUND))
+    }
+
+    if (host.node_type === 'pve') {
+      return {
+        ready: true,
+        state: 'done',
+        source: 'image',
+        manualOverride: false,
+        message: 'PVE instance',
+        detectedAt: new Date().toISOString()
+      }
     }
 
     try {

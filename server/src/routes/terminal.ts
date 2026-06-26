@@ -323,6 +323,9 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
 
             const sshClient = new Client()
 
+            const isQemu = instance.instance_type === 'vm' || (instance.image && instance.image.includes(':iso/'))
+            console.log(`[Terminal] PVE instance ${instanceId} isQemu=${isQemu} instance_type=${instance.instance_type} image=${(instance.image || '').substring(0, 50)}`)
+
             sshClient.on('ready', () => {
               sshClient.shell({ term: 'xterm-256color', cols: 80, rows: 24 }, (shellErr, stream) => {
                 if (shellErr) {
@@ -357,7 +360,15 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
                   socket.close()
                 })
 
-                stream.write(`pct enter ${vmid}\n`)
+                if (isQemu) {
+                  const natIp = host.nat_public_ip || host.ip_address || ''
+                  const sshPort = instance.ssh_port || 22
+                  safeSend(socket, `\r\n[PVE QEMU VM ${vmid}] Use SSH to connect:\r\n`)
+                  safeSend(socket, `ssh root@${natIp} -p ${sshPort}\r\n\r\n`)
+                  stream.write(`qm terminal ${vmid}\n`)
+                } else {
+                  stream.write(`pct enter ${vmid}\n`)
+                }
               })
             })
 

@@ -46,7 +46,9 @@ export async function createPveInstanceAsync(
       net1Config = `name=eth1,bridge=${ipv6Bridge},ip6=${ipv6Addr},gw6=${ipv6Gw}`
     }
 
-    if (config.instanceType === 'vm') {
+    const isVm = config.instanceType === 'vm' || (config.image && config.image.includes(':iso/'))
+
+    if (isVm) {
       const qemuParams: Record<string, any> = {
         vmid,
         name: config.name,
@@ -54,8 +56,8 @@ export async function createPveInstanceAsync(
         memory: config.memory,
         storage,
         net0: `virtio,bridge=${bridge}`,
-        boot: 'order=scsi0',
-        scsi0: `${storage}:${vmid}/disk-0,size=${config.disk}M`,
+        boot: 'order=virtio0',
+        virtio0: `${storage}:${config.disk}`,
         onboot: 1,
         agent: 1,
       }

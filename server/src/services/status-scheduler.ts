@@ -185,15 +185,38 @@ async function syncInstanceStatus(
                 return { changed: false, error: 'PVE instance missing vmid' }
             }
             try {
-                const isContainer = !instance.incusId || instance.incusId.startsWith('lxc-') || true
-                const statusResp = isContainer
-                    ? await pveClient.getLxcStatus(vmid)
-                    : await pveClient.getQemuStatus(vmid)
+                const isQemu = (instance as any).instanceType === 'vm' || ((instance as any).image && (instance as any).image.includes(':iso/'))
+                const statusResp = isQemu
+                    ? await pveClient.getQemuStatus(vmid)
+                    : await pveClient.getLxcStatus(vmid)
                 remoteStatus = statusResp?.status || null
             } catch (err: any) {
                 const errMsg = err?.message || String(err)
                 if (errMsg.includes('does not exist') || errMsg.includes('not found') || errMsg.includes('404')) {
-                    remoteStatus = 'deleted'
+                    const isQemu = (instance as any).instanceType === 'vm' || ((instance as any).image && (instance as any).image.includes(':iso/'))
+                    if (!isQemu) {
+                        try {
+                            const qemuStatus = await pveClient.getQemuStatus(vmid)
+                            if (qemuStatus?.status) {
+                                remoteStatus = qemuStatus.status
+                            } else {
+                                remoteStatus = 'deleted'
+                            }
+                        } catch {
+                            remoteStatus = 'deleted'
+                        }
+                    } else {
+                        try {
+                            const lxcStatus = await pveClient.getLxcStatus(vmid)
+                            if (lxcStatus?.status) {
+                                remoteStatus = lxcStatus.status
+                            } else {
+                                remoteStatus = 'deleted'
+                            }
+                        } catch {
+                            remoteStatus = 'deleted'
+                        }
+                    }
                 } else {
                     throw err
                 }

@@ -236,6 +236,15 @@ export async function collectTrafficForRunningInstance(
     }
   }
 
+  if ((instance.host as any).nodeType === 'pve') {
+    return {
+      success: true,
+      skipped: true,
+      totalDelta: 0n,
+      currentUsage: instance.monthlyTrafficUsed
+    }
+  }
+
   if (!instance.host.certPath || !instance.host.keyPath) {
     return {
       success: false,

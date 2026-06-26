@@ -673,7 +673,11 @@ export default async function terminalRoutes(fastify: FastifyInstance) {
         let instanceType: 'vm' | 'container' = 'container'
         try {
             const pkg = instance.package_id ? await db.getPackageById(instance.package_id) : null
-            instanceType = (pkg?.instance_type === 'vm') ? 'vm' : 'container'
+            if (instance.instance_type === 'vm' || (instance.image && instance.image.includes(':iso/'))) {
+                instanceType = 'vm'
+            } else if (pkg?.instance_type === 'vm') {
+                instanceType = 'vm'
+            }
         } catch {}
 
         try {

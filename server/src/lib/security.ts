@@ -1014,11 +1014,19 @@ export function decryptSensitiveData(ciphertext: string): string | null {
     try {
         const parts = ciphertext.split(':')
         if (parts.length !== 3) {
-            // 可能是未加密的旧数据，直接返回
+            if (/^[0-9a-f]{32}:[0-9a-f]{16,}:[0-9a-f]+$/.test(ciphertext)) {
+                console.warn('Decryption: ciphertext looks encrypted but has wrong format')
+                return null
+            }
             return ciphertext
         }
 
         const [ivHex, tagHex, encrypted] = parts
+        if (!/^[0-9a-f]+$/.test(ivHex) || !/^[0-9a-f]+$/.test(tagHex) || !/^[0-9a-f]+$/.test(encrypted)) {
+            console.warn('Decryption: ciphertext contains invalid hex characters')
+            return ciphertext
+        }
+
         const key = getEncryptionKey()
         const iv = Buffer.from(ivHex, 'hex')
         const tag = Buffer.from(tagHex, 'hex')
@@ -1031,9 +1039,8 @@ export function decryptSensitiveData(ciphertext: string): string | null {
 
         return decrypted
     } catch (err) {
-        // Decryption failed, might be unencrypted old data
-        console.warn('Decryption failed, returning original data')
-        return ciphertext
+        console.warn('Decryption failed, returning null instead of raw ciphertext')
+        return null
     }
 }
 

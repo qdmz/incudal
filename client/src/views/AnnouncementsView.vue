@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useBrand } from '@/composables/useBrand'
 import api from '@/api'
+import DOMPurify from 'dompurify'
 
 defineOptions({ name: 'AnnouncementsView' })
 
@@ -107,7 +108,7 @@ function formatDate(dateStr: string): string {
         <div
           class="prose mt-4 max-w-none text-sm leading-7"
           :class="themeStore.isDark ? 'prose-invert text-zinc-300' : 'text-slate-600'"
-          v-html="item.content"
+          v-html="DOMPurify.sanitize(item.content)"
         />
       </article>
     </div>

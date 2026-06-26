@@ -147,8 +147,9 @@ export async function createPveInstanceAsync(
           const { sshExec } = await import('../../lib/ssh-exec.js')
           const sshHost = host.ip_address || host.url.replace(/^https?:\/\//, '').split(':')[0]
           const sshPort = host.pve_ssh_port || 22
+          const escapedPassword = config.password.replace(/'/g, "'\\''")
           await sshExec(sshHost, sshPort, 'root', host.pve_ssh_password || '', 
-            `pct exec ${vmid} -- bash -c 'echo root:${config.password} | chpasswd && sed -i \"s/^#*PermitRootLogin.*/PermitRootLogin yes/\" /etc/ssh/sshd_config && echo \"PasswordAuthentication yes\" >> /etc/ssh/sshd_config && sed -i \"s/^session.*pam_systemd/#&/\" /etc/pam.d/common-session && systemctl disable ssh.socket 2>/dev/null && systemctl stop ssh.socket 2>/dev/null && systemctl enable ssh.service 2>/dev/null && systemctl restart ssh.service 2>/dev/null || service ssh restart 2>/dev/null || true'`
+            `pct exec ${vmid} -- bash -c 'echo root:${escapedPassword} | chpasswd && sed -i \"s/^#*PermitRootLogin.*/PermitRootLogin yes/\" /etc/ssh/sshd_config && echo \"PasswordAuthentication yes\" >> /etc/ssh/sshd_config && sed -i \"s/^session.*pam_systemd/#&/\" /etc/pam.d/common-session && systemctl disable ssh.socket 2>/dev/null && systemctl stop ssh.socket 2>/dev/null && systemctl enable ssh.service 2>/dev/null && systemctl restart ssh.service 2>/dev/null || service ssh restart 2>/dev/null || true'`
           )
           console.log(`[PVE Provisioning] LXC ${vmid} 已启用 root 密码登录`)
         } catch (sshErr) {

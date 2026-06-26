@@ -1816,7 +1816,7 @@ export default async function hostRoutes(fastify: FastifyInstance) {
         pveUsername: host.pve_username || null,
         pveRealm: host.pve_realm || null,
         pveSshPort: host.pve_ssh_port || null,
-        pveSshPassword: host.pve_ssh_password || null,
+        pveSshPassword: host.pve_ssh_password ? '••••••••' : null,
         instances: instances.map((i: unknown) => {
           const instance = i as { id: number; name: string; status: string }
           return {

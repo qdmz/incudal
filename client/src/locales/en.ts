@@ -6407,6 +6407,21 @@ export default {
         noMatchingInstancesHint: 'Try another keyword or clear the search to see all running instances.',
     },
 
+    vnc: {
+        title: 'VNC Console',
+        connected: 'Connected',
+        connecting: 'Connecting...',
+        disconnected: 'Disconnected',
+        error: 'Connection Error',
+        connectionFailed: 'VNC connection failed',
+        connectionLost: 'VNC connection lost',
+        reconnect: 'Reconnect',
+        fullscreen: 'Fullscreen',
+        exitFullscreen: 'Exit Fullscreen',
+        sendCtrlAltDel: 'Send Ctrl+Alt+Del',
+        notAuthenticated: 'Not authenticated',
+    },
+
     // Ticket System
     tickets: {
         title: 'Ticket Center',

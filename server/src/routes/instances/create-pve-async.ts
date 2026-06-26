@@ -69,7 +69,14 @@ export async function createPveInstanceAsync(
       if (config.sshKey) qemuParams['ssh-public-keys'] = config.sshKey
       const upid = await pveClient.createQemu(qemuParams as any)
       if (upid) await pveClient.waitForTask(upid)
-      console.log(`[PVE Provisioning] QEMU VM ${vmid} 创建完成`)
+      console.log(`[PVE Provisioning] QEMU VM ${vmid} 创建完成, 正在启动...`)
+      try {
+        const startUpid = await pveClient.startQemu(vmid)
+        if (startUpid) await pveClient.waitForTask(startUpid)
+        console.log(`[PVE Provisioning] QEMU VM ${vmid} 已启动`)
+      } catch (startErr) {
+        console.error(`[PVE Provisioning] QEMU VM ${vmid} 启动失败:`, startErr instanceof Error ? startErr.message : String(startErr))
+      }
     } else {
       const lxcParams: Record<string, any> = {
         vmid,

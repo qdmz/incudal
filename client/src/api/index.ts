@@ -908,6 +908,8 @@ const api = {
       http.post(`/instances/${id}/change-host`, data),
     createTerminalTicket: (id: number): Promise<{ ticket: string; expiresIn: number }> =>
       http.post(`/ws/instances/${id}/terminal-ticket`, {}),
+    createVncTicket: (id: number): Promise<{ ticket: string; expiresIn: number }> =>
+      http.post(`/ws/instances/${id}/vnc-ticket`, {}),
     updateOrder: (id: number, action: 'top' | 'up' | 'down' | 'bottom'): Promise<{ message: string; updated: number }> =>
       http.patch(`/instances/${id}/order`, { action }),
     delete: (id: number, reason?: string): Promise<{ message: string; refundAmount?: number }> =>

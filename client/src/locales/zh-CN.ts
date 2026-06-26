@@ -6411,6 +6411,21 @@ export default {
         noMatchingInstancesHint: '换个关键词试试，或清空搜索条件查看全部运行中实例。',
     },
 
+    vnc: {
+        title: 'VNC 控制台',
+        connected: '已连接',
+        connecting: '正在连接...',
+        disconnected: '已断开',
+        error: '连接错误',
+        connectionFailed: 'VNC 连接失败',
+        connectionLost: 'VNC 连接已断开',
+        reconnect: '重新连接',
+        fullscreen: '全屏',
+        exitFullscreen: '退出全屏',
+        sendCtrlAltDel: '发送 Ctrl+Alt+Del',
+        notAuthenticated: '未登录',
+    },
+
     // 工单系统
     tickets: {
         title: '工单中心',

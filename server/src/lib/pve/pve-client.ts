@@ -53,6 +53,10 @@ export class PveClient {
   private async ensureToken(): Promise<void> {
     if (this.apiToken) return
     if (this.token && Date.now() < this.token.expiry - 60000) return
+    await this.fetchTicket()
+  }
+
+  private async fetchTicket(): Promise<void> {
 
     const body: Record<string, string> = {
       username: this.username,
@@ -130,6 +134,22 @@ export class PveClient {
 
   get nodeName(): string {
     return this._nodeName
+  }
+
+  getAuthCookie(): string {
+    if (this.apiToken) {
+      const parts = this.apiToken.split('=')
+      return parts[0]
+    }
+    return this.token?.ticket || ''
+  }
+
+  async ensureTicketForVnc(): Promise<string> {
+    if (this.token && Date.now() < this.token.expiry - 60000) {
+      return this.token.ticket
+    }
+    await this.fetchTicket()
+    return this.token!.ticket
   }
 
   // ==================== 节点信息 ====================
@@ -250,6 +270,16 @@ export class PveClient {
 
   async updateQemu(vmid: number, params: Record<string, any>): Promise<string> {
     return this.request('PUT', `/nodes/${this._nodeName}/qemu/${vmid}/config`, params)
+  }
+
+  async vncProxyQemu(vmid: number, websocket?: number): Promise<{ port: number; ticket: string }> {
+    const params: Record<string, any> = { websocket: websocket ?? 1 }
+    return this.request('POST', `/nodes/${this._nodeName}/qemu/${vmid}/vncproxy`, params)
+  }
+
+  async vncProxyLxc(vmid: number, websocket?: number): Promise<{ port: number; ticket: string }> {
+    const params: Record<string, any> = { websocket: websocket ?? 1 }
+    return this.request('POST', `/nodes/${this._nodeName}/lxc/${vmid}/vncproxy`, params)
   }
 
   // ==================== 镜像/存储 ====================

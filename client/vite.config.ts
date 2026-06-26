@@ -38,6 +38,13 @@ export default defineConfig(({ mode }) => {
         '@': fileURLToPath(new URL('./src', import.meta.url))
       }
     },
+
+    optimizeDeps: {
+      esbuildOptions: {
+        target: 'esnext',
+      },
+      exclude: ['@novnc/novnc'],
+    },
     
     server: {
       port: 43173,

@@ -480,6 +480,7 @@ export interface Instance {
   hostNatPublicIpv6?: string | null
   hostIpv6Gateway?: string | null
   hostIpAddress?: string | null
+  hostNodeType?: 'incus' | 'pve' | 'lxd' | 'kvm' | 'external_api' | null
   userAvatarBadgeId?: string | null
   // 封停相关字段
   expires_at?: string | null        // 到期时间，null 表示免费实例

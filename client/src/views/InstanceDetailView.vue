@@ -35,6 +35,7 @@ const ApplyAffCodeModal = defineAsyncComponent(() => import('@/components/instan
 const ChangePlanModal = defineAsyncComponent(() => import('@/components/instance/modals/ChangePlanModal.vue'))
 const DestroyInstanceModal = defineAsyncComponent(() => import('@/components/instance/modals/DestroyInstanceModal.vue'))
 const TerminalModal = defineAsyncComponent(() => import('@/components/instance/TerminalModal.vue'))
+const VncModal = defineAsyncComponent(() => import('@/components/instance/VncModal.vue'))
 import InstanceDisplayIcon from '@/components/InstanceDisplayIcon.vue'
 const InstanceBadgeModal = defineAsyncComponent(() => import('@/components/instance/InstanceBadgeModal.vue'))
 import AnnouncementIcon from '@/components/icons/AnnouncementIcon.vue'
@@ -281,10 +282,15 @@ const canDeleteInstance = computed<boolean>(() => {
 
 // 终端模态框
 const showTerminalModal = ref<boolean>(false)
+const showVncModal = ref<boolean>(false)
 const terminalConnected = ref<boolean>(false)
 const terminalSessionActive = ref<boolean>(false)  // 终端会话是否存在（无论连接状态）
 const terminalForceDisconnect = ref<boolean>(false)
 const terminalTabCount = ref<number>(0)  // 终端标签数量
+
+const isPveInstance = computed(() => {
+  return (instance.value as any)?.hostNodeType === 'pve'
+})
 
 // 终端悄浮按钮拖动状态
 const terminalFabY = ref<number | null>(null) // null 表示使用默认位置
@@ -2448,6 +2454,19 @@ function formatShortDate(dateStr: string | null | undefined): string {
             </svg>
             <span class="hidden sm:inline ml-1">{{ $t('terminal.title') }}</span>
           </button>
+          <!-- VNC Button (PVE only) -->
+          <button 
+            v-if="isRunning && isPveInstance" 
+            class="btn-sm sm:btn inline-flex rounded-lg"
+            :class="themeStore.isDark ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-purple-500 hover:bg-purple-600 text-white'"
+            :title="$t('vnc.title')"
+            @click="showVncModal = true"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            <span class="hidden sm:inline ml-1">{{ $t('vnc.title') }}</span>
+          </button>
           <!-- Terminal Button (Disabled when not running) -->
           <button 
             v-if="isStopped" 
@@ -3379,6 +3398,13 @@ function formatShortDate(dateStr: string | null | undefined): string {
       @update:session-active="terminalSessionActive = $event"
       @update:tab-count="terminalTabCount = $event"
       @cloud-init-manual-complete="handleTerminalCloudInitManualComplete"
+    />
+
+    <!-- VNC Modal (PVE only) -->
+    <VncModal
+      v-model:visible="showVncModal"
+      :instance-id="instance?.id || null"
+      :instance-name="instance?.name"
     />
 
     <!-- 终端悬浮按钮 - 当终端会话存在但模态框关闭时显示 -->

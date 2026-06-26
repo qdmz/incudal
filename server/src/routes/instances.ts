@@ -192,6 +192,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           host_country_code: string | null
           host_nat_public_ip: string | null
           host_ip_address: string | null
+          host_node_type: string | null
           network_mode: string
           username: string | null
           user_email: string | null
@@ -234,6 +235,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           hostNatPublicIpv6?: string | null
           hostIpv6Gateway?: string | null
           hostIpAddress?: string | null
+          hostNodeType?: string | null
           createdAt: string
           expiresAt?: string | null
           expires_at?: string | null
@@ -281,6 +283,7 @@ export default async function instanceRoutes(fastify: FastifyInstance) {
           hostNatPublicIpv6: (instance as any).host_nat_public_ipv6 || null,
           hostIpv6Gateway: (instance as any).host_ipv6_gateway || null,
           hostIpAddress: instance.host_ip_address || null,
+          hostNodeType: (instance as any).host_node_type || null,
           displayOrder: instance.display_order ?? 0,
           createdAt: instance.created_at,
           expiresAt: instance.expires_at,

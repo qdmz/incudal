@@ -446,7 +446,8 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
           natPublicIpv6: true,
           ipv6Gateway: true,
           ipAddress: true,
-          url: true
+          url: true,
+          nodeType: true
         }
       },
       user: {
@@ -529,6 +530,7 @@ export async function getInstancesPaginated(options: PaginationOptions = {}): Pr
       host_nat_public_ip: i.host.natPublicIp,
       host_nat_public_ipv6: i.host.natPublicIpv6,
       host_ipv6_gateway: i.host.ipv6Gateway,
+      host_node_type: i.host.nodeType,
       host_ip_address: (() => {
         if (i.host.ipAddress) return i.host.ipAddress
         if (i.host.url) {

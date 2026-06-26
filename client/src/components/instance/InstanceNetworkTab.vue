@@ -28,11 +28,12 @@ function getPrivatePort(m: PortMapping): number {
 interface Props {
   instance: Instance
   copied: string
-  canManagePorts?: boolean  // AUTH004: 节点所有者不能管理端口映射
-  isInstanceOwner?: boolean  // 是否是实例所有者
-  reassignIpv6Loading?: boolean  // 重新分配 IPv6 加载状态
-  lastIpv6ReassignAt?: string | null  // 上次重新分配 IPv6 时间
-  deletePortsLoading?: boolean  // 批量删除加载状态
+  canManagePorts?: boolean
+  isInstanceOwner?: boolean
+  reassignIpv6Loading?: boolean
+  lastIpv6ReassignAt?: string | null
+  deletePortsLoading?: boolean
+  instancePassword?: Record<string, string | null>
 }
 
 interface Emits {
@@ -103,10 +104,12 @@ const sshRemoteInfo = computed(() => {
   const hostNodeType = (props.instance as any).hostNodeType
   if (hostNodeType !== 'pve') return null
   const natIp = props.instance.natPublicIp || (props.instance as any).host_ip_address || ''
+  const pwd = props.instancePassword?.[props.instance.id]
   return {
     host: natIp,
     port: props.instance.ssh_port,
-    hasPassword: !!(props.instance as any).root_password
+    hasPassword: !!pwd,
+    passwordVisible: pwd || ''
   }
 })
 const hasPortQuota = computed<boolean>(() => portLimit.value !== 0) // 如果设置为0则没有配额，否则认为有配额（哪怕null）
@@ -435,7 +438,8 @@ const canReassignIpv6 = computed(() => {
         </div>
         <div class="flex items-center justify-between">
           <span class="text-gray-500">{{ t('instance.detail.network.password') }}:</span>
-          <span>{{ sshRemoteInfo.hasPassword ? '••••••••' : '-' }}</span>
+          <span v-if="sshRemoteInfo.hasPassword" class="font-mono">{{ sshRemoteInfo.passwordVisible || '••••••••' }}</span>
+          <span v-else>-</span>
         </div>
         <div class="pt-2 border-t" :class="themeStore.isDark ? 'border-gray-700' : 'border-gray-200'">
           <code class="text-green-500 select-all">ssh root@{{ sshRemoteInfo.host }} -p {{ sshRemoteInfo.port }}</code>

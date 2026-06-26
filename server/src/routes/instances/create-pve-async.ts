@@ -112,7 +112,7 @@ export async function createPveInstanceAsync(
           const sshHost = host.ip_address || host.url.replace(/^https?:\/\//, '').split(':')[0]
           const sshPort = host.pve_ssh_port || 22
           await sshExec(sshHost, sshPort, 'root', host.pve_ssh_password || '', 
-            `pct exec ${vmid} -- bash -c 'sed -i \"s/^#*PermitRootLogin.*/PermitRootLogin yes/\" /etc/ssh/sshd_config && echo \"PasswordAuthentication yes\" >> /etc/ssh/sshd_config && systemctl disable ssh.socket 2>/dev/null && systemctl stop ssh.socket 2>/dev/null && systemctl enable ssh.service 2>/dev/null && systemctl restart ssh.service 2>/dev/null || service ssh restart 2>/dev/null || true'`
+            `pct exec ${vmid} -- bash -c 'sed -i \"s/^#*PermitRootLogin.*/PermitRootLogin yes/\" /etc/ssh/sshd_config && echo \"PasswordAuthentication yes\" >> /etc/ssh/sshd_config && sed -i \"s/^session.*pam_systemd/#&/\" /etc/pam.d/common-session && systemctl disable ssh.socket 2>/dev/null && systemctl stop ssh.socket 2>/dev/null && systemctl enable ssh.service 2>/dev/null && systemctl restart ssh.service 2>/dev/null || service ssh restart 2>/dev/null || true'`
           )
           console.log(`[PVE Provisioning] LXC ${vmid} 已启用 root 密码登录`)
         } catch (sshErr) {
@@ -167,16 +167,21 @@ export async function createPveInstanceAsync(
 
     // 写入 IP 地址记录
     try {
+      const ipv6Addr = host.ipv6_subnet
+        ? `${host.ipv6_subnet.replace(/\/\d+$/, '').split(':').slice(0, 4).join(':')}:${vmid.toString(16).padStart(4, '0')}::1`
+        : null
       await prisma.ipAddress.create({
         data: { address: internalIp, type: 'inet4', isPrimary: true, device: 'eth0', instanceId, hostId: host.id }
       })
-      if (host.ipv6_subnet) {
-        const ipv6Parts = host.ipv6_subnet.replace(/\/\d+$/, '').split(':')
-        const ipv6Addr = `${ipv6Parts.slice(0, 4).join(':')}:${vmid.toString(16).padStart(4, '0')}::1`
+      if (ipv6Addr) {
         await prisma.ipAddress.create({
           data: { address: ipv6Addr, type: 'inet6', isPrimary: true, device: 'eth1', instanceId, hostId: host.id }
         })
       }
+      await prisma.instance.update({
+        where: { id: instanceId },
+        data: { ipv4: internalIp, ipv6: ipv6Addr }
+      })
       console.log(`[PVE Provisioning] IP 地址记录已写入`)
     } catch (ipErr) {
       console.error(`[PVE Provisioning] IP 地址写入失败:`, ipErr instanceof Error ? ipErr.message : String(ipErr))

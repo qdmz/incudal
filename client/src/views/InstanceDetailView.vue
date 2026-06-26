@@ -3008,6 +3008,7 @@ function formatShortDate(dateStr: string | null | undefined): string {
             :reassign-ipv6-loading="reassignIpv6Loading"
             :last-ipv6-reassign-at="(instance as any).last_ipv6_reassign_at"
             :delete-ports-loading="deletePortsLoading"
+            :instance-password="instancePassword"
             @copy="copyToClipboard"
             @add-port="showAddPortModal = true"
             @delete-port="deletePort"
